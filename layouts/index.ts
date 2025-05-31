@@ -1,5 +1,2 @@
-import MainLayout from './MainLayout';
- 
-export {
-  MainLayout
-}; 
+export { default as CustomerLayout } from './CustomerLayout';
+export { default as MainLayout } from './MainLayout'; 
