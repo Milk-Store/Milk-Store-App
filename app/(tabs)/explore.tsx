@@ -5,6 +5,8 @@ import {
   FlatList,
   Text,
   TouchableOpacity,
+  ScrollView,
+  RefreshControl,
 } from 'react-native';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Product } from '../../contexts/CartContext';
@@ -16,7 +18,7 @@ import CategoryItem from '../../components/CategoryItem';
 import SectionHeader from '../../components/SectionHeader';
 import CarouselBanner from '../../components/CarouselBanner';
 import ProductCardResponsive from '../../components/ProductCardResponsive';
-import { MainLayout } from '../../layouts';
+import { CustomerLayout } from '../../layouts';
 
 // Banner data for carousel
 const banners = [
@@ -37,93 +39,104 @@ export default function ProductsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const ITEMS_PER_PAGE = 10;
   
   // Fetch data (products and categories)
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (pageNum: number = 1, shouldRefresh: boolean = true, categoryId: string = selectedCategory) => {
     try {
-      setIsLoading(true);
+      if (pageNum === 1) {
+        setIsLoading(true);
+      }
       
-      // Fetch categories
-      const categoriesData = await api.categories.getAll(true);
-      setCategories(categoriesData);
+      // Fetch categories if needed
+      if (shouldRefresh) {
+        const categoriesData = await api.categories.getAll(true);
+        setCategories(categoriesData);
+      }
       
-      // Fetch all products
-      const productsData = await api.products.getAll(true);
-      setProducts(productsData);
+      // Fetch all products with pagination
+      const { products: productsData, total } = await api.products.getAll(
+        true,
+        pageNum,
+        ITEMS_PER_PAGE,
+        searchQuery,
+        categoryId !== 'all' ? parseInt(categoryId) : undefined
+      );
+      
+      if (shouldRefresh) {
+        setProducts(productsData);
+      } else {
+        setProducts(prev => [...prev, ...productsData]);
+      }
+      setTotalProducts(total);
       
       // Set featured products (top 6)
-      setFeaturedProducts(productsData.slice(0, 6));
+      if (pageNum === 1) {
+        setFeaturedProducts(productsData.slice(0, 6));
+      }
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
-  }, []);
+  }, [searchQuery]);
   
   // Initial data fetch
   useEffect(() => {
-    fetchData();
+    fetchData(1, true, 'all');
   }, [fetchData]);
   
   // Handle search
   const handleSearch = useCallback((text: string) => {
     setSearchQuery(text);
+    setPage(1);
     
     if (!text.trim()) {
       // If search is cleared, show products from selected category
-      if (selectedCategory === 'all') {
-        fetchData();
-      } else {
-        filterByCategory(selectedCategory);
-      }
+      fetchData(1, true, selectedCategory);
       return;
     }
     
-    // Filter products by search term and selected category
-    const searchTerms = text.toLowerCase().split(' ').filter(term => term);
-    let filtered = products.filter(product => {
-      const matchesSearch = searchTerms.some(term => 
-        product.name.toLowerCase().includes(term) || 
-        (product.description && product.description.toLowerCase().includes(term))
-      );
-      
-      if (selectedCategory !== 'all') {
-        return matchesSearch && product.category_id === selectedCategory;
-      }
-      
-      return matchesSearch;
-    });
-    
-    setProducts(filtered);
-  }, [selectedCategory, products, fetchData]);
+    // Fetch products with search query
+    fetchData(1, true, selectedCategory);
+  }, [fetchData, selectedCategory]);
   
   // Filter products by category
   const filterByCategory = useCallback(async (categoryId: string) => {
     setSelectedCategory(categoryId);
+    setPage(1);
     
     try {
       setIsLoading(true);
-      
-      if (categoryId === 'all') {
-        const productsData = await api.products.getAll(true);
-        setProducts(productsData);
-      } else {
-        const productsData = await api.products.getByCategory(categoryId);
-        setProducts(productsData);
-      }
+      await fetchData(1, true, categoryId);
     } catch (error) {
       console.error('Error filtering by category:', error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [fetchData]);
+  
+  // Handle load more
+  const handleLoadMore = useCallback(() => {
+    if (isLoadingMore || products.length >= totalProducts) return;
+    
+    setIsLoadingMore(true);
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchData(nextPage, false, selectedCategory);
+  }, [isLoadingMore, products.length, totalProducts, page, fetchData, selectedCategory]);
   
   // Handle refresh
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await fetchData();
+    setPage(1);
+    await fetchData(1, true, selectedCategory);
     setIsRefreshing(false);
-  }, [fetchData]);
+  }, [fetchData, selectedCategory]);
   
   // Handle product press
   const handleProductPress = useCallback((productId: string) => {
@@ -176,8 +189,40 @@ export default function ProductsScreen() {
     // @ts-ignore - Router type definition might be missing
     navigation.navigate('(tabs)/account');
   }, [navigation]);
+
+  const navigationProps = {
+    showLogo: true,
+    showBackButton: false,
+    showCart: true,
+    showSearch: true,
+    onLogoPress: handleLogoPress,
+    onCartPress: handleCartPress,
+    onSearchPress: handleSearchPress,
+    activeTab: 'products' as const,
+    onHomePress: handleHomePress,
+    onProductsPress: handleProductsPress,
+    onAccountPress: handleAccountPress,
+    onSearchChange: handleSearch,
+    onSearchClear: handleSearchClear,
+    searchValue: searchQuery,
+    isSearchActive: isSearchActive,
+  };
   
-  // Content to render inside MainLayout
+  // Render footer for loading more
+  const renderFooter = () => {
+    if (!isLoadingMore) return null;
+    
+    return (
+      <View style={styles.loadingMore}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={[styles.loadingMoreText, { color: colors.text }]}>
+          Đang tải thêm...
+        </Text>
+      </View>
+    );
+  };
+
+  // Content to render inside CustomerLayout
   const renderContent = () => {
     if (isLoading && !isRefreshing) {
       return (
@@ -189,7 +234,26 @@ export default function ProductsScreen() {
     }
 
     return (
-      <>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const paddingToBottom = 20;
+          if (layoutMeasurement.height + contentOffset.y >=
+              contentSize.height - paddingToBottom) {
+            handleLoadMore();
+          }
+        }}
+        scrollEventThrottle={400}
+      >
         {/* Banner Carousel */}
         {/* <CarouselBanner data={banners} /> */}
         
@@ -218,27 +282,29 @@ export default function ProductsScreen() {
         </View>
         
         {/* Featured Products */}
-        <View style={styles.sectionContainer}>
-          <SectionHeader 
-            title="Sản phẩm nổi bật" 
-            onAction={handleSeeAll}
-          />
-          
-          <View style={styles.productsGrid}>
-            {featuredProducts.map((item) => (
-              <ProductCardResponsive
-                key={item.id}
-                id={item.id}
-                name={item.name}
-                price={item.price}
-                image={item.image}
-                discount={item.discount}
-                onPress={handleProductPress}
-                onAddToCart={handleAddToCart}
-              />
-            ))}
+        {page === 1 && (
+          <View style={styles.sectionContainer}>
+            <SectionHeader 
+              title="Sản phẩm nổi bật" 
+              onAction={handleSeeAll}
+            />
+            
+            <View style={styles.productsGrid}>
+              {featuredProducts.map((item) => (
+                <ProductCardResponsive
+                  key={item.id}
+                  id={item.id}
+                  name={item.name}
+                  price={item.price}
+                  image={item.image}
+                  discount={item.discount}
+                  onPress={handleProductPress}
+                  onAddToCart={handleAddToCart}
+                />
+              ))}
+            </View>
           </View>
-        </View>
+        )}
         
         {/* All Products */}
         <View style={styles.sectionContainer}>
@@ -248,7 +314,7 @@ export default function ProductsScreen() {
           />
           
           <View style={styles.productsGrid}>
-            {products.slice(0, 8).map((item) => (
+            {products.map((item) => (
               <ProductCardResponsive
                 key={item.id}
                 id={item.id}
@@ -261,33 +327,16 @@ export default function ProductsScreen() {
               />
             ))}
           </View>
+          {renderFooter()}
         </View>
-      </>
+      </ScrollView>
     );
   };
 
   return (
-    <MainLayout
-      showLogo={true}
-      showBackButton={false}
-      showCart={true}
-      showSearch={true}
-      activeTab="products"
-      searchValue={searchQuery}
-      isSearchActive={isSearchActive}
-      onLogoPress={handleLogoPress}
-      onCartPress={handleCartPress}
-      onSearchPress={handleSearchPress}
-      onSearchChange={handleSearch}
-      onSearchClear={handleSearchClear}
-      onHomePress={handleHomePress}
-      onProductsPress={handleProductsPress}
-      onAccountPress={handleAccountPress}
-      refreshing={isRefreshing}
-      onRefresh={handleRefresh}
-    >
+    <CustomerLayout {...navigationProps}>
       {renderContent()}
-    </MainLayout>
+    </CustomerLayout>
   );
 }
 
@@ -313,6 +362,16 @@ const styles = StyleSheet.responsive({
       flexDirection: 'row',
       flexWrap: 'wrap',
       paddingHorizontal: scale(8),
+    },
+    loadingMore: {
+      paddingVertical: scale(16),
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+    },
+    loadingMoreText: {
+      marginLeft: scale(8),
+      fontSize: scale(14),
     },
   },
   

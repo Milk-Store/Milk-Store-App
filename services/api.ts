@@ -2,13 +2,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Product } from '../contexts/CartContext';
 import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 // Cấu hình URL API server
 // Thay thế bằng địa chỉ IP thực tế của máy chủ trong mạng nội bộ
 // Ví dụ: const SERVER_IP = '192.168.1.5'; 
 const SERVER_IP = '192.168.1.235'; // IP từ server log
 const SERVER_PORT = '8000';
-const API_BASE_URL = `http://${SERVER_IP}:${SERVER_PORT}/api`;
+const API_BASE_URL = 'https://ca94-14-243-81-73.ngrok-free.app/api';
 
 // Timeout cho API requests (ms)
 const API_TIMEOUT = 15000;
@@ -44,7 +46,7 @@ const processQueue = (error: Error | null | unknown, token: string | null = null
       prom.resolve(token);
     }
   });
-  
+
   failedQueue = [];
 };
 
@@ -61,7 +63,7 @@ const fetchWithTimeout = (url: string, options: RequestInit, timeout: number): P
     const timer = setTimeout(() => {
       reject(new Error('Request timed out'));
     }, timeout);
-    
+
     fetch(url, options)
       .then(response => {
         clearTimeout(timer);
@@ -91,7 +93,7 @@ const refreshAuthToken = async () => {
     if (!refreshToken) {
       throw new Error('No refresh token available');
     }
-    
+
     const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers: {
@@ -100,34 +102,34 @@ const refreshAuthToken = async () => {
       },
       body: JSON.stringify({ refreshToken }),
     }, API_TIMEOUT);
-    
+
     const data = await response.json();
-    
+
     if (!response.ok) {
       throw new Error(data.message || 'Failed to refresh token');
     }
-    
+
     const { accessToken, refreshToken: newRefreshToken } = data.data;
-    
+
     if (accessToken) {
       await AsyncStorage.setItem('authToken', accessToken);
-      
+
       if (newRefreshToken) {
         await AsyncStorage.setItem('refreshToken', newRefreshToken);
       }
-      
+
       return accessToken;
     }
-    
+
     throw new Error('No token received');
   } catch (error) {
     console.error('Token refresh failed:', error);
-    
+
     // Xóa tokens nếu refresh thất bại
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('refreshToken');
     await AsyncStorage.removeItem('user');
-    
+
     throw error;
   }
 };
@@ -136,11 +138,11 @@ const refreshAuthToken = async () => {
 const handleResponse = async (response: Response) => {
   try {
     const data = await response.json();
-    
+
     if (!response.ok) {
       throw new Error(data.message || 'API request failed');
     }
-    
+
     return data.data || data; // Lấy phần data từ response hoặc toàn bộ response
   } catch (error) {
     console.error('Response parsing error:', error);
@@ -167,7 +169,7 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
     if (method === 'GET' && useCache) {
       const cacheKey = `${method}:${endpoint}`;
       const cachedItem = apiCache[cacheKey];
-      
+
       if (cachedItem && (Date.now() - cachedItem.timestamp) < CACHE_EXPIRY) {
         console.log(`Using cached data for: ${endpoint}`);
         return cachedItem.data;
@@ -200,7 +202,7 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
 
     console.log(`Calling API: ${method} ${API_BASE_URL}${endpoint}`);
     const response = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, options, API_TIMEOUT);
-    
+
     // Kiểm tra nếu token hết hạn
     if (response.status === 401 && requiresAuth) {
       // Nếu đang refresh token, thêm request vào queue
@@ -215,28 +217,28 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
           throw err;
         });
       }
-      
+
       isRefreshing = true;
-      
+
       try {
         // Làm mới token
         const newToken = await refreshAuthToken();
-        
+
         // Cập nhật Authorization header với token mới
         headers['Authorization'] = `Bearer ${newToken}`;
-        
+
         // Reset trạng thái refresh
         isRefreshing = false;
-        
+
         // Xử lý queue các request thất bại
         processQueue(null, newToken);
-        
+
         // Thực hiện lại request ban đầu với token mới
         const newResponse = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, {
           ...options,
           headers,
         }, API_TIMEOUT);
-        
+
         return await handleResponse(newResponse);
       } catch (error) {
         isRefreshing = false;
@@ -244,18 +246,18 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
         throw error;
       }
     }
-    
+
     // Handle server errors with retry logic
     if (response.status >= 500 && retryCount < MAX_RETRIES) {
       console.log(`Server error, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
       // Exponential backoff: 1s, 2s, 4s, ...
-      const delay = 1000 * Math.pow(2, retryCount); 
+      const delay = 1000 * Math.pow(2, retryCount);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchApi(endpoint, method, body, requiresAuth, useCache, retryCount + 1);
     }
-    
+
     const data = await handleResponse(response);
-    
+
     // Cache GET request responses
     if (method === 'GET' && useCache) {
       const cacheKey = `${method}:${endpoint}`;
@@ -264,7 +266,7 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
         timestamp: Date.now()
       };
     }
-    
+
     return data;
   } catch (error) {
     console.error('API Error:', error);
@@ -299,29 +301,29 @@ const uploadWithFormData = async (endpoint: string, formData: FormData, requires
       body: formData,
       // Bỏ credentials
     }, API_TIMEOUT * 2); // Longer timeout for uploads
-    
+
     // Kiểm tra nếu token hết hạn
     if (response.status === 401 && requiresAuth) {
       try {
         // Làm mới token
         const newToken = await refreshAuthToken();
-        
+
         // Cập nhật header với token mới
         headers['Authorization'] = `Bearer ${newToken}`;
-        
+
         // Thực hiện lại request với token mới
         const newResponse = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, {
           method: 'POST',
           headers,
           body: formData,
         }, API_TIMEOUT * 2);
-        
+
         return await handleResponse(newResponse);
       } catch (error) {
         throw error;
       }
     }
-    
+
     // Handle server errors with retry logic
     if (response.status >= 500 && retryCount < MAX_RETRIES) {
       console.log(`Server error during upload, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
@@ -336,6 +338,59 @@ const uploadWithFormData = async (endpoint: string, formData: FormData, requires
     throw error;
   }
 };
+
+interface AdminProduct {
+  id: string;
+  name: string;
+  description: string;
+  image: string;
+  price: number;
+  category_id: number;
+  category?: string | { id: number; name: string };
+  status: boolean;
+}
+
+interface PaginationData {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+}
+
+interface OrderAPI {
+  id: number;
+  phone: string;
+  name?: string;
+  address?: string;
+  orderItems: OrderItemAPI[];
+  total: string | number;
+  status: string;
+  createdAt: string;
+}
+
+interface OrderItemAPI {
+  id: number;
+  order_id: number;
+  product_id: number;
+  quantity: number;
+  product: {
+    id: number;
+    name: string;
+    price: string | number;
+    description?: string;
+    image?: string;
+  };
+}
+
+interface OrdersResponse {
+  orders: OrderAPI[];
+  pagination: PaginationData;
+}
+
+interface ProductsResponse {
+  products: AdminProduct[];
+  pagination: PaginationData;
+}
 
 // API functions
 export const api = {
@@ -357,20 +412,35 @@ export const api = {
       try {
         console.log('Login attempt:', email);
         const data = await fetchApi('/auth/login', 'POST', { email, password }, false, false);
-        
+
         // Lưu thông tin user và token
         if (data.user) {
+          console.log('Login successful');
           await AsyncStorage.setItem('user', JSON.stringify(data.user));
+
+          // Nếu là admin, đăng ký push token
+          if (data.user.role === 'ROLE_ADMIN') {
+            try {
+              const pushToken = await Notifications.getExpoPushTokenAsync({
+                projectId: Constants.expoConfig?.extra?.eas?.projectId || Constants.expoConfig?.extra?.projectId,
+              });
+              if (pushToken) {
+                await api.notifications.registerToken(pushToken.data);
+              }
+            } catch (error) {
+              console.error('Failed to register push token:', error);
+            }
+          }
         }
-        
+
         if (data.accessToken) {
           await AsyncStorage.setItem('authToken', data.accessToken);
         }
-        
+
         if (data.refreshToken) {
           await AsyncStorage.setItem('refreshToken', data.refreshToken);
         }
-        
+
         return data;
       } catch (error) {
         console.error('Login failed:', error);
@@ -379,7 +449,22 @@ export const api = {
     },
     logout: async () => {
       try {
-        await fetchApi('/auth/logout', 'POST', undefined, true, false);
+        // Kiểm tra nếu là admin thì hủy đăng ký push token
+        const userStr = await AsyncStorage.getItem('user');
+        if (userStr) {
+          const user = JSON.parse(userStr);
+          if (user.role === 'ROLE_ADMIN') {
+            try {
+              await api.notifications.unregisterToken();
+            } catch (error) {
+              console.error('Failed to unregister push token:', error);
+            }
+          }
+        }
+
+        const response = await fetchApi('/auth/logout', 'POST', undefined, true, false);
+        console.log('Logout successful');
+
         // Clear cache on logout
         apiCache = {};
         // Xóa dữ liệu local
@@ -388,6 +473,8 @@ export const api = {
         await AsyncStorage.removeItem('refreshToken');
       } catch (error) {
         // Vẫn xóa dữ liệu local ngay cả khi API lỗi
+        console.log('Logout failed:', error);
+
         apiCache = {};
         await AsyncStorage.removeItem('user');
         await AsyncStorage.removeItem('authToken');
@@ -402,132 +489,162 @@ export const api = {
       return await fetchApi('/auth/refresh', 'POST', undefined, true, false);
     }
   },
-  
+
   // Products
   products: {
-    getAll: async (forceRefresh: boolean = false): Promise<Product[]> => {
-      console.log('Fetching all products');
-      return await fetchApi('/products', 'GET', undefined, false, !forceRefresh);
+    getAll: async (
+      forceRefresh: boolean = false,
+      page: number = 1,
+      limit: number = 10,
+      search: string = '',
+      category_id?: number
+    ): Promise<ProductsResponse> => {
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        ...(search && { search }),
+        ...(category_id && { category_id: category_id.toString() })
+      });
+      
+      const data = await fetchApi(`/products/admin/list?${queryParams}`, 'GET', undefined, false, !forceRefresh);
+      return {
+        products: data.products || [],
+        pagination: {
+          currentPage: data.currentPage,
+          totalPages: data.totalPages,
+          totalItems: data.totalItems,
+          itemsPerPage: data.itemsPerPage
+        }
+      };
     },
-    
+
+    getHotProducts: async (forceRefresh: boolean = false): Promise<Product[]> => {
+      console.log('Fetching hot products');
+      return await fetchApi('/products/selling', 'GET', undefined, false, !forceRefresh);
+    },
+
     getByCategory: async (categoryId: string, forceRefresh: boolean = false): Promise<Product[]> => {
       return await fetchApi(`/products?category_id=${categoryId}`, 'GET', undefined, false, !forceRefresh);
     },
-    
+
     getById: async (productId: string, forceRefresh: boolean = false): Promise<Product> => {
       return await fetchApi(`/products/${productId}`, 'GET', undefined, false, !forceRefresh);
     },
-    
-    create: async (productData: any, imageUri?: string): Promise<Product> => {
-      if (!imageUri) {
-        // Nếu không có ảnh, sử dụng JSON
-        const result = await fetchApi('/products', 'POST', productData, true, false);
-        // Clear product cache after creating a new product
-        clearCacheByPattern('/products');
-        return result;
-      }
-      
-      // Nếu có ảnh, sử dụng FormData
+
+    create: async (
+      productData: Omit<AdminProduct, 'id' | 'image'>,
+      imageUri?: string
+    ): Promise<AdminProduct> => {
       const formData = new FormData();
       
-      // Thêm thông tin sản phẩm
-      formData.append('name', productData.name);
-      formData.append('price', productData.price.toString());
-      formData.append('category_id', productData.category_id.toString());
+      // Add product data
+      Object.entries(productData).forEach(([key, value]) => {
+        formData.append(key, value.toString());
+      });
       
-      if (productData.description) {
-        formData.append('description', productData.description);
+      // Add image if provided
+      if (imageUri) {
+        const filename = imageUri.split('/').pop() || 'image.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        formData.append('image', {
+          uri: imageUri,
+          name: filename,
+          type,
+        } as any);
       }
       
-      // Thêm file ảnh
-      const uriParts = imageUri.split('/');
-      const fileName = uriParts[uriParts.length - 1];
-      
-      formData.append('image', {
-        uri: Platform.OS === 'android' ? imageUri : imageUri.replace('file://', ''),
-        name: fileName,
-        type: 'image/jpeg', // Sử dụng jpeg mặc định, cần đoán định dạng thực tế
-      } as any);
-      
-      const result = await uploadWithFormData('/products', formData);
-      // Clear product cache after creating a new product
-      clearCacheByPattern('/products');
-      return result;
+      return await fetchApi('/products/admin', 'POST', formData, true);
     },
-    
-    update: async (productId: string, productData: any, imageUri?: string): Promise<Product> => {
-      if (!imageUri) {
-        // Nếu không có ảnh, sử dụng JSON
-        const result = await fetchApi(`/products/${productId}`, 'PUT', productData, true, false);
-        // Clear relevant cache entries
-        clearCacheByPattern('/products');
-        return result;
-      }
-      
-      // Nếu có ảnh, sử dụng FormData
+
+    update: async (
+      id: string,
+      productData: Partial<Omit<AdminProduct, 'id' | 'image'>>,
+      imageUri?: string
+    ): Promise<AdminProduct> => {
       const formData = new FormData();
       
-      // Thêm thông tin sản phẩm
-      if (productData.name) formData.append('name', productData.name);
-      if (productData.price) formData.append('price', productData.price.toString());
-      if (productData.category_id) formData.append('category_id', productData.category_id.toString());
-      if (productData.description) formData.append('description', productData.description);
+      // Add product data
+      Object.entries(productData).forEach(([key, value]) => {
+        formData.append(key, value.toString());
+      });
       
-      // Thêm file ảnh
-      const uriParts = imageUri.split('/');
-      const fileName = uriParts[uriParts.length - 1];
+      // Add image if provided
+      if (imageUri) {
+        const filename = imageUri.split('/').pop() || 'image.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        formData.append('image', {
+          uri: imageUri,
+          name: filename,
+          type,
+        } as any);
+      }
       
-      formData.append('image', {
-        uri: Platform.OS === 'android' ? imageUri : imageUri.replace('file://', ''),
-        name: fileName,
-        type: 'image/jpeg',
-      } as any);
-      
-      const result = await uploadWithFormData(`/products/${productId}`, formData);
-      // Clear relevant cache entries
-      clearCacheByPattern('/products');
-      return result;
+      return await fetchApi(`/products/admin/${id}`, 'PUT', formData, true);
     },
-    
-    delete: async (productId: string): Promise<void> => {
-      const result = await fetchApi(`/products/${productId}`, 'DELETE', undefined, true, false);
-      // Clear product cache after deleting
-      clearCacheByPattern('/products');
-      return result;
+
+    delete: async (id: string): Promise<void> => {
+      await fetchApi(`/products/admin/${id}`, 'DELETE');
     }
   },
-  
+
   // Categories
   categories: {
     getAll: async (forceRefresh: boolean = false) => {
       return await fetchApi('/categories', 'GET', undefined, false, !forceRefresh);
     },
-    
+
     create: async (name: string) => {
       const result = await fetchApi('/categories', 'POST', { name }, true, false);
       clearCacheByPattern('/categories');
       return result;
     },
-    
+
     update: async (categoryId: string, name: string) => {
       const result = await fetchApi(`/categories/${categoryId}`, 'PUT', { name }, true, false);
       clearCacheByPattern('/categories');
       return result;
     },
-    
+
     delete: async (categoryId: string) => {
       const result = await fetchApi(`/categories/${categoryId}`, 'DELETE', undefined, true, false);
       clearCacheByPattern('/categories');
       return result;
     }
   },
-  
+
   // Orders
   orders: {
-    getAll: async (forceRefresh: boolean = false) => {
-      return await fetchApi('/orders', 'GET', undefined, true, !forceRefresh);
+    getAll: async (page: number = 1, forceRefresh: boolean = false) => {
+      try {
+        const response = await fetchApi(
+          `/orders/admin/list?page=${page}&limit=10`,
+          'GET',
+          undefined,
+          true,
+          !forceRefresh
+        );
+        console.log('API Response:', response);
+        
+        // Trả về đúng format từ response
+        return {
+          orders: response.orders || [],
+          pagination: {
+            currentPage: response.currentPage,
+            totalPages: response.totalPages,
+            totalItems: response.totalItems,
+            itemsPerPage: response.itemsPerPage
+          }
+        };
+      } catch (error) {
+        console.error('Error in getAll:', error);
+        throw error;
+      }
     },
-    
+
     create: async (orderData: {
       phone: string;
       orderItems: Array<{ product_id: number; quantity: number }>;
@@ -536,18 +653,50 @@ export const api = {
       clearCacheByPattern('/orders');
       return result;
     },
-    
+
     update: async (orderId: string, status: string) => {
       const result = await fetchApi(`/orders/${orderId}`, 'PUT', { status }, true, false);
       clearCacheByPattern('/orders');
       return result;
     }
   },
-  
+
   // Users
   users: {
     update: async (userId: string, userData: { name?: string; email?: string; password?: string }) => {
       return await fetchApi(`/users/${userId}`, 'PUT', userData, true, false);
+    }
+  },
+
+    // Sliders
+  getSliders: async () => {
+    try {
+      const response = await fetchApi('/sliders', 'GET', undefined, false, true);      
+      return response || [];
+    } catch (error) {
+      console.error('Error fetching sliders:', error);
+      return [];
+    }
+  },
+
+    // Banner Popup
+  getBannerPopup: async () => {
+    try {
+      const response = await fetchApi('/banners/one', 'GET', undefined, false, true);
+      return response || null;
+    } catch (error) {
+      console.error('Error fetching banner popup:', error);
+      return null;
+    }
+  },
+
+  // Notifications
+  notifications: {
+    registerToken: async (pushToken: string) => {
+      return await fetchApi('/notifications/register-token', 'POST', { pushToken }, true, false);
+    },
+    unregisterToken: async () => {
+      return await fetchApi('/notifications/unregister-token', 'POST', undefined, true, false);
     }
   }
 }; 

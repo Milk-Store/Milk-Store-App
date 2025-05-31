@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,24 +8,74 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  Platform,
+  Dimensions,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotification } from '../contexts/NotificationContext';
 import AdminOrders from '../components/admin/AdminOrders';
 import AdminCategories from '../components/admin/AdminCategories';
 import AdminProducts from '../components/admin/AdminProducts';
 import AdminDashboard from '../components/admin/AdminDashboard';
 import AdminSettings from '../components/admin/AdminSettings';
+import Constants from 'expo-constants';
 
 type AdminTab = 'dashboard' | 'categories' | 'products' | 'orders' | 'settings';
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? Constants.statusBarHeight : StatusBar.currentHeight || 0;
+const isSmallDevice = SCREEN_HEIGHT < 700;
 
 export default function AdminScreen() {
   const router = useRouter();
   const { colors, theme } = useTheme();
   const { user, logout } = useAuth();
+  const { notificationCount, clearNotificationCount } = useNotification();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
+
+  // Shake animation when new notification arrives
+  useEffect(() => {
+    if (notificationCount > 0) {
+      Animated.sequence([
+        Animated.timing(shakeAnimation, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+          easing: Easing.linear,
+        }),
+        Animated.timing(shakeAnimation, {
+          toValue: -1,
+          duration: 100,
+          useNativeDriver: true,
+          easing: Easing.linear,
+        }),
+        Animated.timing(shakeAnimation, {
+          toValue: 0.5,
+          duration: 100,
+          useNativeDriver: true,
+          easing: Easing.linear,
+        }),
+        Animated.timing(shakeAnimation, {
+          toValue: -0.5,
+          duration: 100,
+          useNativeDriver: true,
+          easing: Easing.linear,
+        }),
+        Animated.timing(shakeAnimation, {
+          toValue: 0,
+          duration: 100,
+          useNativeDriver: true,
+          easing: Easing.linear,
+        }),
+      ]).start();
+    }
+  }, [notificationCount]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -65,25 +115,83 @@ export default function AdminScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} />
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar 
+        barStyle={theme === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor="transparent"
+        translucent
+      />
+      
+      {/* Status Bar Spacer */}
+      <View style={[styles.statusBarSpacer, { backgroundColor: colors.cardBackground }]} />
       
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.cardBackground, borderBottomColor: colors.separator }]}>
-        <View>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>
-            Quản lý cửa hàng
-          </Text>
-          <Text style={[styles.headerSubtitle, { color: colors.gray }]}>
-            {`Xin chào, ${user?.name || 'Admin'}`}
-          </Text>
+      <View style={[styles.header, { 
+        backgroundColor: colors.cardBackground, 
+        borderBottomColor: colors.separator,
+      }]}>
+        <View style={styles.headerContent}>
+          <View>
+            <Text style={[styles.headerTitle, { 
+              color: colors.text,
+              fontSize: isSmallDevice ? 18 : 20,
+            }]}>
+              Quản lý cửa hàng
+            </Text>
+            <Text style={[styles.headerSubtitle, { 
+              color: colors.gray,
+              fontSize: isSmallDevice ? 12 : 14,
+            }]}>
+              {`Xin chào, ${user?.name || 'Admin'}`}
+            </Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    rotate: shakeAnimation.interpolate({
+                      inputRange: [-1, 1],
+                      outputRange: ['-20deg', '20deg']
+                    })
+                  }
+                ]
+              }}
+            >
+              <TouchableOpacity 
+                style={[styles.iconButton, { backgroundColor: colors.background }]}
+                onPress={() => {
+                  setActiveTab('orders');
+                  clearNotificationCount();
+                }}
+              >
+                <Ionicons 
+                  name="notifications-outline" 
+                  size={isSmallDevice ? 20 : 22} 
+                  color={colors.primary} 
+                />
+                {notificationCount > 0 && (
+                  <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                    <Text style={styles.badgeText}>
+                      {notificationCount > 99 ? '99+' : notificationCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+            
+            <TouchableOpacity 
+              style={[styles.iconButton, { backgroundColor: colors.background }]}
+              onPress={handleLogout}
+            >
+              <Ionicons 
+                name="log-out-outline" 
+                size={isSmallDevice ? 20 : 22} 
+                color={colors.primary} 
+              />
+            </TouchableOpacity>
+          </View>
         </View>
-        <TouchableOpacity 
-          style={[styles.logoutButton, { backgroundColor: colors.background }]}
-          onPress={handleLogout}
-        >
-          <Ionicons name="log-out-outline" size={22} color={colors.primary} />
-        </TouchableOpacity>
       </View>
       
       {/* Main Content */}
@@ -92,7 +200,12 @@ export default function AdminScreen() {
       </View>
       
       {/* Bottom Navigation */}
-      <View style={[styles.bottomNav, { backgroundColor: colors.cardBackground, borderTopColor: colors.separator }]}>
+      <View style={[styles.bottomNav, { 
+        backgroundColor: colors.cardBackground, 
+        borderTopColor: colors.separator,
+        height: Platform.OS === 'ios' ? 80 : 70,
+        paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+      }]}>
         <TouchableOpacity 
           style={[
             styles.navItem, 
@@ -102,13 +215,16 @@ export default function AdminScreen() {
         >
           <Ionicons 
             name="grid-outline" 
-            size={22} 
+            size={isSmallDevice ? 20 : 22} 
             color={activeTab === 'dashboard' ? colors.primary : colors.gray} 
           />
           <Text 
             style={[
               styles.navText, 
-              { color: activeTab === 'dashboard' ? colors.primary : colors.gray }
+              { 
+                color: activeTab === 'dashboard' ? colors.primary : colors.gray,
+                fontSize: isSmallDevice ? 11 : 12,
+              }
             ]}
           >
             Tổng quan
@@ -124,13 +240,16 @@ export default function AdminScreen() {
         >
           <Ionicons 
             name="list-outline" 
-            size={22} 
+            size={isSmallDevice ? 20 : 22} 
             color={activeTab === 'categories' ? colors.primary : colors.gray} 
           />
           <Text 
             style={[
               styles.navText, 
-              { color: activeTab === 'categories' ? colors.primary : colors.gray }
+              { 
+                color: activeTab === 'categories' ? colors.primary : colors.gray,
+                fontSize: isSmallDevice ? 11 : 12,
+              }
             ]}
           >
             Danh mục
@@ -146,13 +265,16 @@ export default function AdminScreen() {
         >
           <Ionicons 
             name="cube-outline" 
-            size={22} 
+            size={isSmallDevice ? 20 : 22} 
             color={activeTab === 'products' ? colors.primary : colors.gray} 
           />
           <Text 
             style={[
               styles.navText, 
-              { color: activeTab === 'products' ? colors.primary : colors.gray }
+              { 
+                color: activeTab === 'products' ? colors.primary : colors.gray,
+                fontSize: isSmallDevice ? 11 : 12,
+              }
             ]}
           >
             Sản phẩm
@@ -168,13 +290,16 @@ export default function AdminScreen() {
         >
           <Ionicons 
             name="receipt-outline" 
-            size={22} 
+            size={isSmallDevice ? 20 : 22} 
             color={activeTab === 'orders' ? colors.primary : colors.gray} 
           />
           <Text 
             style={[
               styles.navText, 
-              { color: activeTab === 'orders' ? colors.primary : colors.gray }
+              { 
+                color: activeTab === 'orders' ? colors.primary : colors.gray,
+                fontSize: isSmallDevice ? 11 : 12,
+              }
             ]}
           >
             Đơn hàng
@@ -190,20 +315,23 @@ export default function AdminScreen() {
         >
           <Ionicons 
             name="settings-outline" 
-            size={22} 
+            size={isSmallDevice ? 20 : 22} 
             color={activeTab === 'settings' ? colors.primary : colors.gray} 
           />
           <Text 
             style={[
               styles.navText, 
-              { color: activeTab === 'settings' ? colors.primary : colors.gray }
+              { 
+                color: activeTab === 'settings' ? colors.primary : colors.gray,
+                fontSize: isSmallDevice ? 11 : 12,
+              }
             ]}
           >
             Cài đặt
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -211,12 +339,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  statusBarSpacer: {
+    height: STATUSBAR_HEIGHT,
+  },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
     borderBottomWidth: 1,
     elevation: 2,
     shadowColor: '#000',
@@ -224,41 +350,64 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 4,
   },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: isSmallDevice ? 12 : 16,
+  },
   headerTitle: {
-    fontSize: 20,
     fontWeight: 'bold',
   },
   headerSubtitle: {
-    fontSize: 14,
     marginTop: 4,
   },
-  logoutButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  iconButton: {
+    width: isSmallDevice ? 32 : 36,
+    height: isSmallDevice ? 32 : 36,
+    borderRadius: isSmallDevice ? 16 : 18,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   content: {
     flex: 1,
   },
   bottomNav: {
     flexDirection: 'row',
-    height: 70,
     borderTopWidth: 1,
-    paddingBottom: 10,
   },
   navItem: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 10,
+    paddingTop: isSmallDevice ? 8 : 10,
   },
   activeNavItem: {
     borderTopWidth: 3,
   },
   navText: {
-    fontSize: 12,
     marginTop: 4,
   },
 }); 

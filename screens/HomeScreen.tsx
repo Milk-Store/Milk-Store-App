@@ -16,17 +16,23 @@ import {
   Modal,
   useWindowDimensions,
 } from 'react-native';
-import { useNavigation } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
 import { Image } from 'expo-image';
 import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 import SearchBar from '../components/SearchBar';
 import CategoryList from '../components/CategoryList';
-import ProductCard from '../components/ProductCard';
+import ProductCardResponsive from '../components/ProductCardResponsive';
 import { Product } from '../contexts/CartContext';
 import { api } from '../services/api';
 import Carousel from 'react-native-reanimated-carousel';
-import { MainLayout } from '../layouts';
+import { CustomerLayout } from '../layouts';
+import CarouselBanner from '../components/CarouselBanner';
+import BannerPopup from '../components/BannerPopup';
+import { Slider, BannerPopup as BannerPopupType } from '../types';
+import Header from '../components/Header';
+import Footer from '@/components/Footer';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Banner data for carousel
 const banners = [
@@ -36,7 +42,7 @@ const banners = [
 ];
 
 export default function HomeScreen() {
-  const navigation = useNavigation();
+  const router = useRouter();
   const { colors, theme } = useTheme();
   const carouselRef = useRef(null);
   const { width, height } = useWindowDimensions();
@@ -46,48 +52,61 @@ export default function HomeScreen() {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [newProducts, setNewProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [sliders, setSliders] = useState<Slider[]>([]);
+  const [bannerPopup, setBannerPopup] = useState<BannerPopupType | null>(null);
+  const [showBannerPopup, setShowBannerPopup] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [activeSlide, setActiveSlide] = useState(0);
   const [searchMode, setSearchMode] = useState(false);
+  const [hasViewedBanner, setHasViewedBanner] = useState(false);
 
-  // Fetch categories và products từ API - Chỉ gọi khi lần đầu render hoặc refresh
+  // Check if banner has been viewed
+  useEffect(() => {
+    const checkBannerViewed = async () => {
+      try {
+        const viewed = await AsyncStorage.getItem('bannerViewed');
+        setHasViewedBanner(!!viewed);
+      } catch (error) {
+        console.error('Error checking banner viewed status:', error);
+      }
+    };
+    checkBannerViewed();
+  }, []);
+
+  // Fetch all data
   const fetchData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      console.log('Starting fetchData...');
+      const [
+        categoriesResponse,
+        hotProductsResponse,
+        slidersResponse,
+        bannerPopupResponse
+      ] = await Promise.all([
+        api.categories.getAll(),
+        api.products.getHotProducts(),
+        api.getSliders(),
+        api.getBannerPopup()
+      ]);
+
+      setCategories(categoriesResponse);
+      setProducts(hotProductsResponse);
+      setSliders(slidersResponse || []);
       
-      // Fetch categories
-      const categoriesData = await api.categories.getAll(true);
-      setCategories(categoriesData);
-      
-      // Fetch products
-      const productsData = await api.products.getAll(true);
-      setProducts(productsData);
-      
-      // Sản phẩm nổi bật - lấy sản phẩm của category đầu tiên (nếu có)
-      if (categoriesData.length > 0 && productsData.length > 0) {
-        const firstCatId = categoriesData[0].id;
-        const firstCatProducts = productsData.filter(p => p.category_id === firstCatId);
-        setFeaturedProducts(firstCatProducts.length > 0 ? firstCatProducts : productsData.slice(0, 6));
+      console.log('Banner popup response:', bannerPopupResponse);
+      if (bannerPopupResponse) {
+        console.log('Setting banner popup data');
+        setBannerPopup(bannerPopupResponse);
       } else {
-        setFeaturedProducts(productsData.slice(0, 6));
+        console.log('No banner popup data received');
+        setBannerPopup(null);
       }
-      
-      // Sản phẩm mới - lấy sản phẩm của category thứ hai (nếu có)
-      if (categoriesData.length > 1 && productsData.length > 0) {
-        const secondCatId = categoriesData[1].id;
-        const secondCatProducts = productsData.filter(p => p.category_id === secondCatId);
-        setNewProducts(secondCatProducts.length > 0 ? secondCatProducts : productsData.slice(6, 12));
-      } else {
-        setNewProducts(productsData.slice(6, 12));
-      }
-      
-      // Set filtered products mặc định (tất cả sản phẩm)
-      setFilteredProducts(productsData);
     } catch (error) {
       console.error('Error fetching data:', error);
+      setBannerPopup(null);
     } finally {
       setIsLoading(false);
     }
@@ -146,11 +165,16 @@ export default function HomeScreen() {
     setSearchMode(true);
   }, [products, searchQuery, handleSearch, filterProductsByCategory]);
 
-  // Xử lý refresh màn hình
+  // Handle refresh
   const handleRefresh = useCallback(async () => {
+    console.log('Starting refresh...');
     setIsRefreshing(true);
+    // Reset banner state before fetching
+    setShowBannerPopup(false);
+    setBannerPopup(null);
     await fetchData();
     setIsRefreshing(false);
+    console.log('Refresh completed');
   }, [fetchData]);
 
   // Xử lý khi nhấn xem tất cả 
@@ -167,8 +191,9 @@ export default function HomeScreen() {
     setSearchMode(true);
   }, [products, filterProductsByCategory]);
 
-  // Tải dữ liệu ban đầu
+  // Initial data load
   useEffect(() => {
+    console.log('Initial data load');
     fetchData();
   }, [fetchData]);
 
@@ -229,7 +254,7 @@ export default function HomeScreen() {
   // Xử lý khi nhấn vào sản phẩm
   const handleProductPress = (productId: string) => {
     // @ts-ignore - Router type definition might be missing
-    navigation.navigate('product/[id]', { id: productId });
+    router.push(`/product/${productId}`);
   };
 
   // Render sản phẩm
@@ -318,13 +343,13 @@ export default function HomeScreen() {
   // Logo navigation handler
   const handleLogoPress = useCallback(() => {
     // @ts-ignore - Router type definition might be missing
-    navigation.navigate('(tabs)');
-  }, [navigation]);
+    router.push('/');
+  }, [router]);
 
   const handleCartPress = useCallback(() => {
     // @ts-ignore - Router type definition might be missing
-    navigation.navigate('cart');
-  }, [navigation]);
+    router.push('/cart');
+  }, [router]);
 
   const handleSearchPress = useCallback(() => {
     setSearchMode(true);
@@ -335,44 +360,62 @@ export default function HomeScreen() {
     handleSearch('');
   }, [handleSearch]);
 
+  // Handle add to cart
+  const handleAddToCart = useCallback((id: string) => {
+    const product = products.find(p => p.id === id);
+    if (product) {
+      // Add to cart logic here
+      console.log('Adding to cart:', product);
+    }
+  }, [products]);
+
+  // Handle banner close
+  const handleBannerClose = useCallback(() => {
+    console.log('Handling banner close in HomeScreen');
+    setShowBannerPopup(false);
+  }, []);
+
+  const navigationProps = {
+    showLogo: true,
+    showBackButton: false,
+    showSearch: true,
+    onLogoPress: handleLogoPress,
+    onCartPress: handleCartPress,
+    onSearchPress: handleSearchPress,
+    activeTab: 'home' as const,
+    onHomePress: () => {},
+    onProductsPress: () => router.push('/'),
+    onAccountPress: () => router.push('/account'),
+  };
+
+  const searchNavigationProps = {
+    ...navigationProps,
+    showBackButton: true,
+    showLogo: false,
+    showCart: true,
+    onBackPress: () => setSearchMode(false),
+    onSearchChange: handleSearch,
+    onSearchClear: handleSearchClear,
+    searchValue: searchQuery,
+    isSearchActive: true,
+  };
+
   if (isLoading && !isRefreshing) {
     return (
-      <MainLayout
-        showLogo={true}
-        showCart={true}
-        showSearch={true}
-        onLogoPress={handleLogoPress}
-        onCartPress={handleCartPress}
-        onSearchPress={handleSearchPress}
-        onSearchChange={handleSearch}
-        onSearchClear={handleSearchClear}
-        searchValue={searchQuery}
-        isSearchActive={searchMode}
-        scrollEnabled={false}
-      >
+      <CustomerLayout {...navigationProps}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.loadingText, { color: colors.text }]}>Đang tải dữ liệu...</Text>
         </View>
-      </MainLayout>
+      </CustomerLayout>
     );
   }
 
   // Render màn hình danh sách sản phẩm (khi đang tìm kiếm hoặc xem tất cả)
   if (searchMode) {
     return (
-      <MainLayout
-        showBackButton={true}
-        showLogo={false}
-        showCart={true}
-        showSearch={true}
-        onBackPress={() => setSearchMode(false)}
-        onCartPress={handleCartPress}
-        onSearchPress={handleSearchPress}
-        onSearchChange={handleSearch}
-        onSearchClear={handleSearchClear}
-        searchValue={searchQuery}
-        isSearchActive={true}
+      <CustomerLayout
+        {...searchNavigationProps}
         scrollEnabled={false}
       >
         {/* Danh mục sản phẩm */}
@@ -446,158 +489,108 @@ export default function HomeScreen() {
           }
           ListEmptyComponent={renderEmptyList}
         />
-      </MainLayout>
+
+      </CustomerLayout>
     );
   }
 
-  // Render trang chủ chính với nhiều section
+  // Main home screen render
   return (
-    <MainLayout
-      showLogo={true}
-      showCart={true}
-      showSearch={true}
-      onLogoPress={handleLogoPress}
-      onCartPress={handleCartPress}
-      onSearchPress={handleSearchPress}
-      onSearchChange={handleSearch}
-      onSearchClear={handleSearchClear}
-      searchValue={searchQuery}
-      isSearchActive={searchMode}
-      scrollEnabled={true}
-      refreshing={isRefreshing}
-      onRefresh={handleRefresh}
-    >
-      {/* Banner Carousel */}
-      {renderCarousel()}
-
-      {/* Danh mục sản phẩm */}
-      <View style={styles.sectionContainer}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Danh mục sản phẩm</Text>
-          <TouchableOpacity onPress={() => handleSeeAll()}>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <FlatList
-          data={categories.slice(0, 4)}
-          horizontal
-          renderItem={({ item }) => (
-            <TouchableOpacity 
-              style={styles.categoryItemNew}
-              onPress={() => handleCategorySelect(item.id)}
-            >
-              <View style={styles.categoryIconCircle}>
-                <Ionicons name="cube-outline" size={24} color={colors.primary} />
-              </View>
-              <Text style={styles.categoryItemText} numberOfLines={1}>{item.name}</Text>
-            </TouchableOpacity>
-          )}
-          keyExtractor={(item) => item.id}
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryListContainer}
-          scrollEnabled={true}
-        />
-      </View>
-
-      {/* Sản phẩm nổi bật */}
-      <View style={styles.sectionContainer}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Sản phẩm mới nhất</Text>
-          <TouchableOpacity onPress={() => handleSeeAll()}>
-            <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
-          </TouchableOpacity>
-        </View>
-        
-        <FlatList
-          data={products}
-          renderItem={({ item }) => (
-            <View style={styles.productCardNew}>
-              <TouchableOpacity 
-                onPress={() => handleProductPress(item.id)}
-                style={styles.productCardContent}
-              >
-                <Image
-                  source={{ uri: item.image }}
-                  style={styles.productImageNew}
-                  contentFit="cover"
-                  transition={300}
-                />
-                <View style={styles.productInfoNew}>
-                  <Text style={styles.productNameNew} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={[styles.productPriceNew, { color: colors.primary }]}>
-                    {new Intl.NumberFormat('vi-VN', {
-                      style: 'currency',
-                      currency: 'VND',
-                      minimumFractionDigits: 0
-                    }).format(item.price)}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.addCartButtonNew, { backgroundColor: colors.primary }]}
-                >
-                  <Ionicons name="cart-outline" size={18} color="white" />
-                </TouchableOpacity>
-              </TouchableOpacity>
-            </View>
-          )}
-          numColumns={2}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.productGridContainer}
-          columnWrapperStyle={styles.productColumnWrapper}
-          scrollEnabled={false}
-        />
-      </View>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <View style={styles.footerTop}>
-          <Image
-            source={require('../assets/images/logo.jpg')}
-            style={styles.footerLogo}
-            contentFit="contain"
+    <CustomerLayout {...navigationProps}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
           />
-          <Text style={styles.footerTagline}>Vì sức khỏe của gia đình bạn</Text>
-          <View style={styles.socialLinks}>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-facebook" size={24} color="#3b5998" />
+        }
+      >
+        {/* Banner Carousel */}
+        {sliders?.length > 0 && (
+          <CarouselBanner 
+            data={sliders.map(slider => ({ 
+              id: slider.id, 
+              image: slider.image,
+              uri: slider.image
+            }))} 
+          />
+        )}
+
+        {/* Categories Section */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Danh mục sản phẩm</Text>
+            <TouchableOpacity onPress={() => handleSeeAll()}>
+              <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-instagram" size={24} color="#e1306c" />
+          </View>
+          
+          <FlatList
+            data={categories.slice(0, 4)}
+            horizontal
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={[styles.categoryItem, { backgroundColor: colors.cardBackground }]}
+                onPress={() => handleCategorySelect(item.id)}
+              >
+                <View style={[styles.categoryIconCircle, { backgroundColor: colors.primary + '20' }]}>
+                  <Ionicons name="cube-outline" size={24} color={colors.primary} />
+                </View>
+                <Text style={[styles.categoryItemText, { color: colors.text }]} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </TouchableOpacity>
+            )}
+            keyExtractor={(item) => item.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryListContainer}
+          />
+        </View>
+
+        {/* Products Section */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Sản phẩm hot</Text>
+            <TouchableOpacity onPress={() => handleSeeAll()}>
+              <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton}>
-              <Ionicons name="logo-youtube" size={24} color="#ff0000" />
-            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.productsGrid}>
+            {products.map(item => (
+              <ProductCardResponsive
+                key={item.id}
+                id={item.id}
+                name={item.name}
+                price={item.price}
+                image={item.image}
+                onPress={handleProductPress}
+                onAddToCart={handleAddToCart}
+              />
+            ))}
           </View>
         </View>
-        
-        <View style={styles.footerInfo}>
-          <View style={styles.footerInfoItem}>
-            <Ionicons name="call-outline" size={18} color={colors.primary} />
-            <Text style={styles.footerInfoText}>Hotline: 1900 6789</Text>
-          </View>
-          <View style={styles.footerInfoItem}>
-            <Ionicons name="mail-outline" size={18} color={colors.primary} />
-            <Text style={styles.footerInfoText}>Email: support@milkshop.vn</Text>
-          </View>
-          <View style={styles.footerInfoItem}>
-            <Ionicons name="location-outline" size={18} color={colors.primary} />
-            <Text style={styles.footerInfoText}>Địa chỉ: 123 Đường ABC, Quận XYZ, TP. HCM</Text>
-          </View>
-        </View>
-        
-        <View style={styles.copyright}>
-          <Text style={styles.copyrightText}>© 2023 Milk Shop. All rights reserved.</Text>
-        </View>
-      </View>
-    </MainLayout>
+        <Footer />
+      </ScrollView>
+
+      {/* Banner Popup */}
+      {/* <BannerPopup
+        banner={bannerPopup}
+        visible={showBannerPopup}
+        onClose={handleBannerClose}
+      /> */}
+
+    </CustomerLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

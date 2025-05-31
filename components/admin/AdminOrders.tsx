@@ -15,33 +15,51 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { formatCurrency, formatDateTime } from '../../utils/format';
 import { api } from '../../services/api';
 import Button from '../ui/Button';
+import Pagination from '../ui/Pagination';
 
 // Order type definition
 type OrderStatus = 'pending' | 'processing' | 'completed' | 'cancelled';
 
 // API response types
 interface OrderItemAPI {
+  id: number;
+  order_id: number;
+  product_id: number;
+  quantity: number;
   product: {
-    id: string | number;
+    id: number;
     name: string;
     price: string | number;
+    description?: string;
+    image?: string;
   };
-  quantity: number;
 }
 
 interface OrderAPI {
-  id: string | number;
+  id: number;
   phone: string;
-  customer_name?: string;
+  name?: string;
   address?: string;
   orderItems: OrderItemAPI[];
-  total?: string | number;
-  status?: string;
-  createdAt?: string;
+  total: string | number;
+  status: string;
+  createdAt: string;
 }
 
-type Order = {
-  id: string;
+interface PaginationData {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
+}
+
+interface OrdersResponse {
+  orders: OrderAPI[];
+  pagination: PaginationData;
+}
+
+interface Order {
+  id: number;
   customer: {
     phone: string;
     name?: string;
@@ -49,7 +67,7 @@ type Order = {
   };
   items: Array<{
     product: {
-      id: string;
+      id: number;
       name: string;
       price: number;
     };
@@ -58,7 +76,7 @@ type Order = {
   totalAmount: number;
   status: OrderStatus;
   createdAt: string;
-};
+}
 
 export default function AdminOrders() {
   const { colors } = useTheme();
@@ -66,34 +84,68 @@ export default function AdminOrders() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState<OrderStatus | 'all'>('all');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [paginationInfo, setPaginationInfo] = useState<PaginationData | null>(null);
   
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (pageNumber: number = 1) => {
     try {
       setIsLoading(true);
-      const data = await api.orders.getAll();
+      const response = await api.orders.getAll(pageNumber);
+      console.log('Raw API Response:', response);
       
+      if (!response || !response.orders) {
+        throw new Error('Invalid data format received from API');
+      }
+
+      // Lấy thông tin phân trang
+      setPaginationInfo({
+        currentPage: response.pagination.currentPage,
+        totalPages: response.pagination.totalPages,
+        totalItems: response.pagination.totalItems,
+        itemsPerPage: response.pagination.itemsPerPage
+      });
+      
+      setHasMore(response.pagination.currentPage < response.pagination.totalPages);
+
       // Chuyển đổi dữ liệu từ API sang định dạng Order
-      const formattedOrders: Order[] = Array.isArray(data) ? data.map((order: OrderAPI) => ({
-        id: order.id.toString(),
-        customer: {
-          phone: order.phone || '',
-          name: order.customer_name || '',
-          address: order.address || '',
-        },
-        items: Array.isArray(order.orderItems) ? order.orderItems.map((item: OrderItemAPI) => ({
-          product: {
-            id: item.product.id.toString(),
-            name: item.product.name,
-            price: parseFloat(item.product.price.toString()),
+      const formattedOrders: Order[] = response.orders.map((order: OrderAPI) => {
+        if (!order) {
+          console.error('Null order found in API response');
+          return null;
+        }
+
+        return {
+          id: order.id,
+          customer: {
+            phone: order.phone || '',
+            name: order.name || '',
+            address: order.address,
           },
-          quantity: item.quantity,
-        })) : [],
-        totalAmount: order.total ? parseFloat(order.total.toString()) : 0,
-        status: (order.status || 'pending') as OrderStatus,
-        createdAt: order.createdAt || new Date().toISOString(),
-      })) : [];
-      
+          items: (order.orderItems || []).map((item: OrderItemAPI) => {
+            if (!item || !item.product) {
+              console.error('Invalid order item or missing product:', item);
+              return null;
+            }
+
+            return {
+              product: {
+                id: item.product.id,
+                name: item.product.name || '',
+                price: parseFloat(item.product.price?.toString() || '0'),
+              },
+              quantity: item.quantity || 0,
+            };
+          }).filter(Boolean),
+          totalAmount: parseFloat(order.total?.toString() || '0'),
+          status: (order.status || 'pending') as OrderStatus,
+          createdAt: order.createdAt || new Date().toISOString(),
+        };
+      }).filter(Boolean);
+
+      // Cập nhật danh sách orders - thay thế hoàn toàn danh sách cũ
       setOrders(formattedOrders);
+      setPage(pageNumber);
     } catch (error) {
       console.error('Error fetching orders:', error);
       Alert.alert('Lỗi', 'Không thể tải danh sách đơn hàng');
@@ -102,12 +154,10 @@ export default function AdminOrders() {
     }
   }, []);
 
-  // Update order status
-  const handleUpdateStatus = useCallback(async (orderId: string, newStatus: OrderStatus) => {
+  const handleUpdateStatus = useCallback(async (orderId: number, newStatus: OrderStatus) => {
     try {
-      await api.orders.update(orderId, newStatus);
+      await api.orders.update(orderId.toString(), newStatus);
       
-      // Update local state to reflect change
       setOrders(prevOrders => 
         prevOrders.map(order => 
           order.id === orderId 
@@ -123,7 +173,6 @@ export default function AdminOrders() {
     }
   }, []);
 
-  // Handle status change action
   const showStatusOptions = (order: Order) => {
     const statusOptions: OrderStatus[] = ['pending', 'processing', 'completed', 'cancelled'];
     
@@ -139,14 +188,18 @@ export default function AdminOrders() {
     );
   };
 
-  // Handle refresh
+  const handleLoadMore = useCallback(() => {
+    if (!isLoading && hasMore) {
+      fetchOrders(page + 1);
+    }
+  }, [isLoading, hasMore, page, fetchOrders]);
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchOrders();
+    await fetchOrders(1);
     setIsRefreshing(false);
   };
 
-  // Get human-readable status label
   const getStatusLabel = (status: OrderStatus): string => {
     switch (status) {
       case 'pending': return 'Chờ xử lý';
@@ -157,28 +210,24 @@ export default function AdminOrders() {
     }
   };
 
-  // Get status color
   const getStatusColor = (status: OrderStatus): string => {
     switch (status) {
       case 'pending': return colors.primary;
-      case 'processing': return '#FFA500'; // Orange
-      case 'completed': return '#4CD964'; // Green
+      case 'processing': return '#FFA500';
+      case 'completed': return '#4CD964';
       case 'cancelled': return colors.error;
       default: return colors.text;
     }
   };
 
-  // Filter orders
   const filteredOrders = filter === 'all' 
     ? orders 
     : orders.filter(order => order.status === filter);
 
-  // Fetch orders on mount
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  // Render order item
   const renderOrderItem = ({ item }: { item: Order }) => (
     <View 
       style={[
@@ -284,7 +333,6 @@ export default function AdminOrders() {
     </View>
   );
 
-  // Render empty list
   const renderEmptyList = () => (
     <View style={styles.emptyContainer}>
       <Ionicons name="receipt-outline" size={60} color={colors.gray} />
@@ -300,7 +348,6 @@ export default function AdminOrders() {
         <Text style={[styles.title, { color: colors.text }]}>Đơn hàng</Text>
       </View>
       
-      {/* Filter Tabs */}
       <View style={styles.filterContainer}>
         <ScrollableFilter 
           items={[
@@ -324,7 +371,7 @@ export default function AdminOrders() {
         <FlatList
           data={filteredOrders}
           renderItem={renderOrderItem}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.id.toString()}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -336,13 +383,33 @@ export default function AdminOrders() {
             />
           }
           ListEmptyComponent={renderEmptyList}
+          ListFooterComponent={() => (
+            <View style={styles.footerContainer}>
+              {isLoading && !isRefreshing ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : filteredOrders.length > 0 ? (
+                <Text style={[styles.footerText, { color: colors.gray }]}>
+                  --- Đã hiển thị hết {filteredOrders.length} đơn hàng của trang {paginationInfo?.currentPage} ---
+                </Text>
+              ) : null}
+            </View>
+          )}
+        />
+      )}
+      
+      {paginationInfo && (
+        <Pagination
+          currentPage={paginationInfo.currentPage}
+          totalPages={paginationInfo.totalPages}
+          totalItems={paginationInfo.totalItems}
+          onPageChange={fetchOrders}
+          colors={colors}
         />
       )}
     </View>
   );
 }
 
-// Scrollable Filter Component
 type FilterItem = {
   id: string;
   label: string;
@@ -532,5 +599,13 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
     marginHorizontal: 4,
+  },
+  footerContainer: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: 14,
+    fontStyle: 'italic',
   },
 }); 

@@ -33,6 +33,8 @@ type HeaderProps = {
   onSearchClear?: () => void;
   isSearchActive?: boolean;
   rightComponent?: React.ReactNode;
+  isAdmin?: boolean;
+  onLogout?: () => void;
 };
 
 const Header: React.FC<HeaderProps> = ({
@@ -51,8 +53,40 @@ const Header: React.FC<HeaderProps> = ({
   onSearchClear,
   isSearchActive = false,
   rightComponent,
+  isAdmin = false,
+  onLogout,
 }) => {
   const { colors, theme } = useTheme();
+
+  const renderRightComponent = () => {
+    if (rightComponent) {
+      return rightComponent;
+    }
+
+    if (isAdmin && onLogout) {
+      return (
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={onLogout}
+        >
+          <Ionicons name="log-out-outline" size={24} color={colors.text} />
+        </TouchableOpacity>
+      );
+    }
+
+    if (showCart) {
+      return (
+        <TouchableOpacity 
+          style={styles.cartButton}
+          onPress={onCartPress}
+        >
+          <Ionicons name="cart-outline" size={24} color={colors.text} />
+        </TouchableOpacity>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <View style={[
@@ -60,9 +94,6 @@ const Header: React.FC<HeaderProps> = ({
       {
         backgroundColor: colors.background,
         borderBottomColor: colors.separator,
-        zIndex: 10,
-        elevation: 3,
-        paddingTop: scale(8),
       }
     ]}>
       <View style={styles.topHeader}>
@@ -92,7 +123,6 @@ const Header: React.FC<HeaderProps> = ({
           <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
         )}
 
-        {/* Thanh tìm kiếm */}
         {showSearch && (
           isSearchActive ? (
             <View style={[styles.searchBarActive, { backgroundColor: colors.cardBackground }]}>
@@ -125,15 +155,7 @@ const Header: React.FC<HeaderProps> = ({
           )
         )}
 
-        {/* Button bên phải (mặc định là giỏ hàng) */}
-        {rightComponent || (showCart && (
-          <TouchableOpacity 
-            style={styles.cartButton}
-            onPress={onCartPress}
-          >
-            <Ionicons name="cart-outline" size={24} color={colors.text} />
-          </TouchableOpacity>
-        ))}
+        {renderRightComponent()}
       </View>
     </View>
   );
@@ -141,73 +163,82 @@ const Header: React.FC<HeaderProps> = ({
 
 const styles = StyleSheet.create({
   header: {
-    paddingHorizontal: scale(16),
-    paddingBottom: scale(8),
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    zIndex: 10,
+    backgroundColor: 'white',
+    zIndex: 1,
   },
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: scale(48),
+    height: 48,
   },
   logoContainer: {
-    width: scale(40),
-    height: scale(40),
+    width: 40,
+    height: 40,
+    marginRight: 8,
   },
   logo: {
-    width: scale(40),
-    height: scale(40),
-    borderRadius: scale(20),
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   title: {
-    fontSize: normalize(18),
+    fontSize: 18,
     fontWeight: 'bold',
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f0f0f0',
-    borderRadius: scale(20),
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(8),
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     flex: 1,
-    marginHorizontal: scale(10),
+    marginHorizontal: 10,
+    height: 40,
   },
   searchBarActive: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f0f0f0',
-    borderRadius: scale(20),
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(8),
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     flex: 1,
-    marginHorizontal: scale(10),
+    marginHorizontal: 10,
+    height: 40,
   },
   searchIcon: {
-    marginRight: scale(8),
+    marginRight: 8,
   },
   searchPlaceholder: {
-    fontSize: normalize(14),
+    fontSize: 14,
     color: '#888',
     flex: 1,
   },
   searchInput: {
     flex: 1,
-    fontSize: normalize(14),
+    fontSize: 14,
     paddingVertical: 0,
+    height: '100%',
   },
   clearButton: {
-    padding: scale(4),
+    padding: 4,
   },
   cartButton: {
-    padding: scale(8),
+    padding: 8,
+    marginLeft: 8,
+  },
+  logoutButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   backButton: {
-    padding: scale(8),
-    marginRight: scale(8),
+    padding: 8,
+    marginRight: 8,
   },
 });
 

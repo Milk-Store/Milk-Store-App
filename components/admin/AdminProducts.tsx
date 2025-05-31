@@ -23,24 +23,33 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { api } from '../../services/api';
 import { formatCurrency } from '../../utils/format';
 import * as ImagePicker from 'expo-image-picker';
+import Pagination from '../ui/Pagination';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Định nghĩa interface cho Product
-interface Product {
+// Định nghĩa interface cho AdminProduct
+interface AdminProduct {
   id: string;
   name: string;
   description: string;
   image: string;
   price: number;
-  category_id?: number;
+  category_id: number;
   category?: string | { id: number; name: string };
+  status: boolean;
 }
 
 // Định nghĩa interface cho Category
 interface Category {
   id: number;
   name: string;
+}
+
+interface PaginationData {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  itemsPerPage: number;
 }
 
 // ProductForm Component - Tách riêng form ra thành component riêng
@@ -54,7 +63,7 @@ const ProductForm = ({
   onSave 
 }: { 
   modalMode: 'add' | 'edit';
-  currentProduct: Product | null;
+  currentProduct: AdminProduct | null;
   categories: Category[];
   isSubmitting: boolean;
   colors: any;
@@ -65,6 +74,7 @@ const ProductForm = ({
     description: string; 
     category_id: number | null;
     imageUri: string | null;
+    status: boolean;
   }) => void;
 }) => {
   // Form fields
@@ -75,6 +85,7 @@ const ProductForm = ({
     currentProduct?.category_id ? parseInt(currentProduct.category_id.toString()) : null
   );
   const [imagePreview, setImagePreview] = useState<string | null>(currentProduct?.image || null);
+  const [isHotProduct, setIsHotProduct] = useState(currentProduct?.status || false);
   const [isPickerVisible, setIsPickerVisible] = useState(false);
 
   // Function to pick an image from the gallery
@@ -142,7 +153,8 @@ const ProductForm = ({
       price: productPrice,
       description: productDescription.trim(),
       category_id: productCategory,
-      imageUri: imagePreview
+      imageUri: imagePreview,
+      status: isHotProduct
     });
   };
 
@@ -277,6 +289,26 @@ const ProductForm = ({
                 textAlignVertical="top"
               />
               
+              <View style={styles.checkboxContainer}>
+                <TouchableOpacity 
+                  style={styles.checkbox}
+                  onPress={() => setIsHotProduct(!isHotProduct)}
+                >
+                  <View style={[
+                    styles.checkboxInner, 
+                    { borderColor: colors.primary },
+                    isHotProduct && { backgroundColor: colors.primary }
+                  ]}>
+                    {isHotProduct && (
+                      <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                    )}
+                  </View>
+                  <Text style={[styles.checkboxLabel, { color: colors.text }]}>
+                    Sản phẩm hot
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               <View style={styles.buttonContainer}>
                 <TouchableOpacity
                   style={[styles.cancelButton, { borderColor: colors.separator }]}
@@ -310,16 +342,19 @@ const ProductForm = ({
 
 export default function AdminProducts() {
   const { colors } = useTheme();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<AdminProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
-  const [currentProduct, setCurrentProduct] = useState<Product | null>(null);
+  const [currentProduct, setCurrentProduct] = useState<AdminProduct | null>(null);
+  const [paginationInfo, setPaginationInfo] = useState<PaginationData | null>(null);
+  const [page, setPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   useEffect(() => {
-    fetchData();
+    fetchData(1);
   }, []);
 
   // Solicitar permisos al montar el componente
@@ -332,17 +367,19 @@ export default function AdminProducts() {
     })();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (pageNumber: number = 1) => {
     setIsLoading(true);
     try {
       // Fetch products and categories in parallel
-      const [productsData, categoriesData] = await Promise.all([
-        api.products.getAll(),
+      const [productsResponse, categoriesData] = await Promise.all([
+        api.products.getAll(true, pageNumber, ITEMS_PER_PAGE),
         api.categories.getAll()
       ]);
       
-      setProducts(productsData);
+      setProducts(productsResponse.products);
+      setPaginationInfo(productsResponse.pagination);
       setCategories(categoriesData);
+      setPage(pageNumber);
     } catch (error) {
       console.error('Error fetching data:', error);
       Alert.alert('Lỗi', 'Không thể tải dữ liệu từ server');
@@ -357,7 +394,7 @@ export default function AdminProducts() {
     setIsModalVisible(true);
   };
 
-  const handleEditProduct = (product: Product) => {
+  const handleEditProduct = (product: AdminProduct) => {
     setModalMode('edit');
     setCurrentProduct(product);
     setIsModalVisible(true);
@@ -403,6 +440,7 @@ export default function AdminProducts() {
     description: string;
     category_id: number | null;
     imageUri: string | null;
+    status: boolean;
   }) => {
     if (!formData.category_id || !formData.imageUri) return;
     
@@ -414,31 +452,24 @@ export default function AdminProducts() {
         price: Number(formData.price),
         description: formData.description,
         category_id: formData.category_id,
+        status: formData.status
       };
-
-      // Kiểm tra xem đường dẫn hình ảnh có phải là local file URI không
-      const isLocalImage = formData.imageUri && (
-        formData.imageUri.startsWith('file://') || 
-        formData.imageUri.startsWith('content://') || 
-        formData.imageUri.includes('ImagePicker')
-      );
 
       if (modalMode === 'add') {
         const newProduct = await api.products.create(
-          productData as any,
-          isLocalImage ? formData.imageUri : undefined
+          productData,
+          formData.imageUri
         );
         
         setProducts(prevProducts => [...prevProducts, newProduct]);
         Alert.alert('Thành công', 'Thêm sản phẩm thành công');
       } else if (modalMode === 'edit' && currentProduct) {
         const updatedProduct = await api.products.update(
-          currentProduct.id, 
-          productData as any,
-          isLocalImage ? formData.imageUri : undefined
+          currentProduct.id,
+          productData,
+          formData.imageUri
         );
         
-        // Update local state
         setProducts(prevProducts => 
           prevProducts.map(product => 
             product.id === currentProduct.id 
@@ -460,7 +491,7 @@ export default function AdminProducts() {
   };
 
   // Render product item inside the component to have access to colors
-  const renderProductItem = ({ item }: { item: Product }) => (
+  const renderProductItem = ({ item }: { item: AdminProduct }) => (
     <View style={[styles.productCard, { backgroundColor: colors.cardBackground }]}>
       <Image 
         source={{ uri: item.image }}
@@ -468,8 +499,20 @@ export default function AdminProducts() {
         resizeMode="cover"
       />
       <View style={styles.productInfo}>
-        <Text style={[styles.productName, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
-        <Text style={[styles.productPrice, { color: colors.primary }]}>{formatCurrency(item.price)}</Text>
+        <Text style={[styles.productName, { color: colors.text }]} numberOfLines={1}>
+          {item.name}
+        </Text>
+        
+        <View style={styles.priceRow}>
+          <Text style={[styles.productPrice, { color: colors.primary }]}>
+            {formatCurrency(item.price)}
+          </Text>
+          {item.status && (
+            <View style={[styles.hotBadge, { backgroundColor: `${colors.error}20` }]}>
+              <Text style={[styles.hotBadgeText, { color: colors.error }]}>Hot</Text>
+            </View>
+          )}
+        </View>
         
         <View style={styles.categoryContainer}>
           <Ionicons name="list-outline" size={14} color={colors.gray} />
@@ -536,6 +579,27 @@ export default function AdminProducts() {
               </TouchableOpacity>
             </View>
           }
+          ListFooterComponent={() => (
+            <View style={styles.footerContainer}>
+              {isLoading ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : products.length > 0 ? (
+                <Text style={[styles.footerText, { color: colors.gray }]}>
+                  --- Đã hiển thị hết {products.length} sản phẩm của trang {paginationInfo?.currentPage} ---
+                </Text>
+              ) : null}
+            </View>
+          )}
+        />
+      )}
+      
+      {paginationInfo && (
+        <Pagination
+          currentPage={paginationInfo.currentPage}
+          totalPages={paginationInfo.totalPages}
+          totalItems={paginationInfo.totalItems}
+          onPageChange={fetchData}
+          colors={colors}
         />
       )}
       
@@ -622,10 +686,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   productPrice: {
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 4,
   },
   categoryContainer: {
     flexDirection: 'row',
@@ -832,5 +901,42 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     padding: 12,
+  },
+  checkboxContainer: {
+    marginBottom: 16,
+  },
+  checkbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkboxInner: {
+    width: 24,
+    height: 24,
+    borderWidth: 2,
+    borderRadius: 4,
+    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  footerContainer: {
+    padding: 12,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  hotBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  hotBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 
