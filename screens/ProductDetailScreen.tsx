@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,7 +16,7 @@ import { Product } from '../contexts/CartContext';
 import { api } from '../services/api';
 import { formatCurrency } from '../utils/format';
 import Button from '../components/ui/Button';
-import { MainLayout } from '../layouts';
+import { CustomerLayout } from '../layouts';
 
 export default function ProductDetailScreen() {
   const params = useLocalSearchParams();
@@ -91,34 +92,60 @@ export default function ProductDetailScreen() {
   const handleCartPress = () => {
     router.push('/cart');
   };
+
+  const handleLogoPress = () => {
+    router.push('/');
+  };
+
+  const handleSearchPress = () => {
+    router.push({
+      pathname: '/explore',
+      params: { activateSearch: 'true' }
+    });
+  };
+
+  const handleHomePress = () => {
+    router.push('/');
+  };
+
+  const handleProductsPress = () => {
+    router.push('/explore');
+  };
+
+  const handleAccountPress = () => {
+    router.push('/account');
+  };
+
+  const navigationProps = {
+    showLogo: true,
+    showBackButton: true,
+    showCart: true,
+    showSearch: true,
+    onLogoPress: handleLogoPress,
+    onBackPress: handleBack,
+    onCartPress: handleCartPress,
+    onSearchPress: handleSearchPress,
+    activeTab: 'products' as const,
+    onHomePress: handleHomePress,
+    onProductsPress: handleProductsPress,
+    onAccountPress: handleAccountPress,
+    title: product?.name,
+  };
   
   if (isLoading) {
     return (
-      <MainLayout
-        showBackButton={true}
-        showLogo={false}
-        showCart={true}
-        onBackPress={handleBack}
-        onCartPress={handleCartPress}
-        scrollEnabled={false}
-      >
+      <CustomerLayout {...navigationProps}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.text }]}>Đang tải...</Text>
         </View>
-      </MainLayout>
+      </CustomerLayout>
     );
   }
   
   if (error || !product) {
     return (
-      <MainLayout
-        showBackButton={true}
-        showLogo={false}
-        showCart={true}
-        onBackPress={handleBack}
-        onCartPress={handleCartPress}
-        scrollEnabled={false}
-      >
+      <CustomerLayout {...navigationProps}>
         <View style={styles.errorContainer}>
           <Text style={[styles.errorText, { color: colors.error }]}>{error || 'Lỗi không xác định'}</Text>
           <Button 
@@ -128,90 +155,84 @@ export default function ProductDetailScreen() {
             style={styles.backButtonError}
           />
         </View>
-      </MainLayout>
+      </CustomerLayout>
     );
   }
   
   return (
-    <MainLayout
-      showBackButton={true}
-      showLogo={false}
-      showCart={true}
-      onBackPress={handleBack}
-      onCartPress={handleCartPress}
-      scrollEnabled={true}
-      title={product.name}
-    >
-      {/* Product Content */}
-      <View>
-        {/* Product Image */}
-        <Image
-          source={{ uri: product.image }}
-          style={styles.image}
-          contentFit="cover"
-          transition={300}
-        />
-        
-        {/* Product Info */}
-        <View style={styles.infoContainer}>
-          <Text style={[styles.name, { color: colors.text }]}>{product.name}</Text>
-          <Text style={[styles.price, { color: colors.primary }]}>{formatCurrency(product.price)}</Text>
+    <CustomerLayout {...navigationProps}>
+      <ScrollView style={styles.container}>
+        {/* Product Content */}
+        <View>
+          {/* Product Image */}
+          <Image
+            source={{ uri: product.image }}
+            style={styles.image}
+            contentFit="cover"
+            transition={300}
+          />
           
-          {/* Category Info */}
-          {categoryName && (
-            <View style={[styles.categoryBadge, { backgroundColor: colors.primary + '20' }]}>
-              <Text style={[styles.categoryText, { color: colors.primary }]}>
-                {categoryName}
+          {/* Product Info */}
+          <View style={styles.infoContainer}>
+            <Text style={[styles.name, { color: colors.text }]}>{product.name}</Text>
+            <Text style={[styles.price, { color: colors.primary }]}>{formatCurrency(product.price)}</Text>
+            
+            {/* Category Info */}
+            {categoryName && (
+              <View style={[styles.categoryBadge, { backgroundColor: colors.primary + '20' }]}>
+                <Text style={[styles.categoryText, { color: colors.primary }]}>
+                  {categoryName}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.divider} />
+            
+            {/* Description */}
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Mô tả sản phẩm</Text>
+            <Text style={[styles.description, { color: colors.text }]}>{product.description}</Text>
+            
+            <View style={styles.divider} />
+            
+            {/* Quantity Selection */}
+            <View style={styles.quantityContainer}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Số lượng</Text>
+              <View style={styles.quantityControls}>
+                <TouchableOpacity 
+                  style={[styles.quantityButton, { borderColor: colors.separator }]} 
+                  onPress={handleDecreaseQuantity}
+                  disabled={quantity <= 1}
+                >
+                  <Ionicons 
+                    name="remove" 
+                    size={20} 
+                    color={quantity <= 1 ? colors.gray : colors.text} 
+                  />
+                </TouchableOpacity>
+                
+                <Text style={[styles.quantityText, { color: colors.text }]}>{quantity}</Text>
+                
+                <TouchableOpacity 
+                  style={[styles.quantityButton, { borderColor: colors.separator }]} 
+                  onPress={handleIncreaseQuantity}
+                >
+                  <Ionicons name="add" size={20} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            <View style={styles.divider} />
+            
+            {/* Total Price */}
+            <View style={styles.totalContainer}>
+              <Text style={[styles.totalLabel, { color: colors.text }]}>Tổng tiền:</Text>
+              <Text style={[styles.totalPrice, { color: colors.primary }]}>
+                {formatCurrency(product.price * quantity)}
               </Text>
             </View>
-          )}
-          
-          <View style={styles.divider} />
-          
-          {/* Description */}
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>Mô tả sản phẩm</Text>
-          <Text style={[styles.description, { color: colors.text }]}>{product.description}</Text>
-          
-          <View style={styles.divider} />
-          
-          {/* Quantity Selection */}
-          <View style={styles.quantityContainer}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Số lượng</Text>
-            <View style={styles.quantityControls}>
-              <TouchableOpacity 
-                style={[styles.quantityButton, { borderColor: colors.separator }]} 
-                onPress={handleDecreaseQuantity}
-                disabled={quantity <= 1}
-              >
-                <Ionicons 
-                  name="remove" 
-                  size={20} 
-                  color={quantity <= 1 ? colors.gray : colors.text} 
-                />
-              </TouchableOpacity>
-              
-              <Text style={[styles.quantityText, { color: colors.text }]}>{quantity}</Text>
-              
-              <TouchableOpacity 
-                style={[styles.quantityButton, { borderColor: colors.separator }]} 
-                onPress={handleIncreaseQuantity}
-              >
-                <Ionicons name="add" size={20} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-          </View>
-          
-          <View style={styles.divider} />
-          
-          {/* Total Price */}
-          <View style={styles.totalContainer}>
-            <Text style={[styles.totalLabel, { color: colors.text }]}>Tổng tiền:</Text>
-            <Text style={[styles.totalPrice, { color: colors.primary }]}>
-              {formatCurrency(product.price * quantity)}
-            </Text>
           </View>
         </View>
-      </View>
+      </ScrollView>
       
       {/* Bottom Action */}
       <View 
@@ -228,15 +249,22 @@ export default function ProductDetailScreen() {
           fullWidth
         />
       </View>
-    </MainLayout>
+    </CustomerLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
   },
   errorContainer: {
     flex: 1,

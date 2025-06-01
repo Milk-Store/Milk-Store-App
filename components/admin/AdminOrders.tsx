@@ -225,6 +225,8 @@ export default function AdminOrders() {
     : orders.filter(order => order.status === filter);
 
   useEffect(() => {
+    // Clear cache before fetching new data
+    api.cache.clearByPattern('/orders/admin/list');
     fetchOrders();
   }, [fetchOrders]);
 

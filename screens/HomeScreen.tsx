@@ -1,38 +1,29 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  FlatList, 
-  Text, 
-  RefreshControl, 
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Text,
+  RefreshControl,
   ActivityIndicator,
-  SafeAreaView,
-  StatusBar,
   TouchableOpacity,
-  Dimensions,
-  ImageBackground,
   ScrollView,
-  TextInput,
-  Modal,
-  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../contexts/ThemeContext';
 import { Image } from 'expo-image';
-import { Ionicons, MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-import SearchBar from '../components/SearchBar';
-import CategoryList from '../components/CategoryList';
-import ProductCardResponsive from '../components/ProductCardResponsive';
+import { Ionicons } from '@expo/vector-icons';
 import { Product } from '../contexts/CartContext';
 import { api } from '../services/api';
-import Carousel from 'react-native-reanimated-carousel';
 import { CustomerLayout } from '../layouts';
 import CarouselBanner from '../components/CarouselBanner';
-import BannerPopup from '../components/BannerPopup';
 import { Slider, BannerPopup as BannerPopupType } from '../types';
-import Header from '../components/Header';
-import Footer from '@/components/Footer';
+import Footer from '../components/Footer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ProductCardResponsive from '../components/ProductCardResponsive';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+import BannerPopup from '../components/BannerPopup';
 
 // Banner data for carousel
 const banners = [
@@ -44,23 +35,15 @@ const banners = [
 export default function HomeScreen() {
   const router = useRouter();
   const { colors, theme } = useTheme();
-  const carouselRef = useRef(null);
-  const { width, height } = useWindowDimensions();
-  
-  const [categories, setCategories] = useState<any[]>([]);
+
   const [products, setProducts] = useState<Product[]>([]);
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [newProducts, setNewProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [sliders, setSliders] = useState<Slider[]>([]);
   const [bannerPopup, setBannerPopup] = useState<BannerPopupType | null>(null);
   const [showBannerPopup, setShowBannerPopup] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
   const [activeSlide, setActiveSlide] = useState(0);
-  const [searchMode, setSearchMode] = useState(false);
   const [hasViewedBanner, setHasViewedBanner] = useState(false);
 
   // Check if banner has been viewed
@@ -95,101 +78,66 @@ export default function HomeScreen() {
       setCategories(categoriesResponse);
       setProducts(hotProductsResponse);
       setSliders(slidersResponse || []);
-      
-      console.log('Banner popup response:', bannerPopupResponse);
-      if (bannerPopupResponse) {
-        console.log('Setting banner popup data');
+
+      // Chỉ set banner khi có data mới và chưa có banner
+      if (bannerPopupResponse && !bannerPopup) {
         setBannerPopup(bannerPopupResponse);
-      } else {
-        console.log('No banner popup data received');
-        setBannerPopup(null);
+        setShowBannerPopup(true);
+      }
+
+      // Register notification token only if needed
+      try {
+        const token = await AsyncStorage.getItem('authToken');
+        if (token) {
+          const pushToken = await Notifications.getExpoPushTokenAsync({
+            projectId: Constants.expoConfig?.extra?.eas?.projectId || Constants.expoConfig?.extra?.projectId,
+          });
+          if (pushToken) {
+            await api.notifications.registerToken(pushToken.data);
+          }
+        }
+      } catch (error) {
+        // Ignore notification token errors
+        console.log('Failed to register notification token:', error);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
-      setBannerPopup(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
-
-  // Lọc sản phẩm theo danh mục đã chọn
-  const filterProductsByCategory = useCallback((categoryId: string, productList: Product[]) => {
-    if (categoryId === 'all') {
-      return productList;
-    }
-    return productList.filter(product => product.category_id === categoryId);
-  }, []);
-
-  // Xử lý tìm kiếm
-  const handleSearch = useCallback((text: string) => {
-    setSearchQuery(text);
-    
-    if (!text.trim()) {
-      // Nếu xóa từ khóa tìm kiếm, hiển thị lại sản phẩm theo danh mục đã chọn
-      setFilteredProducts(filterProductsByCategory(selectedCategory, products));
-      return;
-    }
-    
-    // Lọc sản phẩm theo từ khóa tìm kiếm và danh mục
-    const searchTerms = text.toLowerCase().split(' ').filter(term => term);
-    const filtered = products.filter(product => {
-      const matchesSearch = searchTerms.some(term => 
-        product.name.toLowerCase().includes(term) || 
-        (product.description && product.description.toLowerCase().includes(term))
-      );
-      
-      // Nếu có chọn danh mục cụ thể, kết hợp điều kiện tìm kiếm với lọc danh mục
-      if (selectedCategory !== 'all') {
-        return matchesSearch && product.category_id === selectedCategory;
-      }
-      
-      return matchesSearch;
-    });
-    
-    setFilteredProducts(filtered);
-  }, [selectedCategory, products, filterProductsByCategory]);
-
-  // Xử lý chọn danh mục
-  const handleCategorySelect = useCallback((categoryId: string) => {
-    setSelectedCategory(categoryId);
-    
-    // Nếu đang tìm kiếm, kết hợp bộ lọc tìm kiếm với danh mục
-    if (searchQuery.trim() && searchQuery !== 'show-all-products') {
-      handleSearch(searchQuery);
-    } else {
-      // Nếu không có tìm kiếm, lọc trực tiếp theo danh mục từ danh sách sản phẩm đã tải
-      setFilteredProducts(filterProductsByCategory(categoryId, products));
-    }
-    
-    // Chuyển sang chế độ hiển thị danh sách sản phẩm
-    setSearchMode(true);
-  }, [products, searchQuery, handleSearch, filterProductsByCategory]);
+  }, [bannerPopup]);
 
   // Handle refresh
   const handleRefresh = useCallback(async () => {
     console.log('Starting refresh...');
     setIsRefreshing(true);
-    // Reset banner state before fetching
-    setShowBannerPopup(false);
-    setBannerPopup(null);
     await fetchData();
     setIsRefreshing(false);
     console.log('Refresh completed');
   }, [fetchData]);
 
   // Xử lý khi nhấn xem tất cả 
-  const handleSeeAll = useCallback((categoryId?: string) => {
-    if (categoryId) {
-      setSelectedCategory(categoryId);
-      setFilteredProducts(filterProductsByCategory(categoryId, products));
-    } else {
-      setSelectedCategory('all');
-      setFilteredProducts(products);
-    }
-    
-    // Chuyển sang chế độ hiển thị danh sách sản phẩm
-    setSearchMode(true);
-  }, [products, filterProductsByCategory]);
+  const handleSeeAll = useCallback(() => {
+    // Navigate to products tab
+    router.push('/explore');
+  }, [router]);
+
+  // Xử lý khi chọn danh mục
+  const handleCategorySelect = useCallback((categoryId: string) => {
+    // Navigate to products tab with category filter
+    router.push({
+      pathname: '/explore',
+      params: { category: categoryId }
+    });
+  }, [router]);
+
+  const handleSearchPress = useCallback(() => {
+    // Navigate to explore screen and activate search
+    router.push({
+      pathname: '/explore',
+      params: { activateSearch: 'true' }
+    });
+  }, [router]);
 
   // Initial data load
   useEffect(() => {
@@ -208,172 +156,43 @@ export default function HomeScreen() {
     );
   };
 
-  // Tính toán kích thước động cho sản phẩm dựa trên kích thước màn hình
-  const getProductCardWidth = () => {
-    // Trên màn hình nhỏ, để lề nhỏ hơn
-    if (width < 350) {
-      return width / 2 - 12;
-    }
-    // Màn hình thông thường
-    return width / 2 - 16;
-  };
-
-  // Tính kích thước cho hiển thị danh mục
-  const getCategoryItemWidth = () => {
-    if (width < 350) {
-      return 70; // Nhỏ hơn cho màn hình nhỏ
-    }
-    return 80; // Kích thước thông thường
-  };
-
-  // Tính padding cho content
-  const getContentPadding = () => {
-    if (width < 350) {
-      return 8;
-    }
-    return 16;
-  };
-
   // Render danh mục
   const renderCategoryItem = ({ item }: { item: any }) => {
     return (
-      <TouchableOpacity 
-        style={[styles.categoryItem, { backgroundColor: colors.cardBackground, width: getCategoryItemWidth() }]}
+      <TouchableOpacity
+        style={[styles.categoryItem, { backgroundColor: colors.cardBackground }]}
         onPress={() => handleCategorySelect(item.id)}
       >
-        <View style={[styles.categoryIconContainer, { backgroundColor: colors.primary + '20' }]}>
-          <Ionicons name="cube-outline" size={24} color={colors.primary} />
+        <View style={[styles.categoryIconCircle, { backgroundColor: colors.primary + '20' }]}>
+          {item.image ? (
+            <Image
+              source={{ uri: item.image }}
+              style={styles.categoryImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Ionicons name="cube-outline" size={24} color={colors.primary} />
+          )}
         </View>
-        <Text style={[styles.categoryName, { color: colors.text }]} numberOfLines={1}>
+        <Text style={[styles.categoryItemText, { color: colors.text }]} numberOfLines={1}>
           {item.name}
         </Text>
       </TouchableOpacity>
     );
   };
 
-  // Xử lý khi nhấn vào sản phẩm
-  const handleProductPress = (productId: string) => {
-    // @ts-ignore - Router type definition might be missing
-    router.push(`/product/${productId}`);
-  };
-
-  // Render sản phẩm
-  const renderProductItem = ({ item }: { item: Product }) => (
-    <View style={[styles.productCard, { width: getProductCardWidth() }]}>
-      <TouchableOpacity 
-        onPress={() => handleProductPress(item.id)}
-        style={[styles.productCardInner, { backgroundColor: colors.cardBackground }]}
-      >
-        <Image
-          source={{ uri: item.image }}
-          style={styles.productImage}
-          contentFit="cover"
-          transition={300}
-        />
-        <View style={styles.productInfo}>
-          <Text style={[styles.productName, { color: colors.text }]} numberOfLines={2}>
-            {item.name}
-          </Text>
-          <Text style={[styles.productPrice, { color: colors.primary }]}>
-            {new Intl.NumberFormat('vi-VN', {
-              style: 'currency',
-              currency: 'VND',
-              minimumFractionDigits: 0
-            }).format(item.price)}
-          </Text>
-          <TouchableOpacity
-            style={[styles.addToCartButton, { backgroundColor: colors.primary }]}
-            onPress={() => {/* Thêm vào giỏ hàng */}}
-          >
-            <Ionicons name="cart-outline" size={16} color="white" />
-          </TouchableOpacity>
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
-  // Render khi không có sản phẩm
-  const renderEmptyList = () => (
-    <View style={styles.emptyContainer}>
-      <Text style={[styles.emptyText, { color: colors.text }]}>
-        {isLoading 
-          ? 'Đang tải sản phẩm...' 
-          : searchQuery && searchQuery !== 'show-all-products' 
-            ? `Không tìm thấy sản phẩm phù hợp với "${searchQuery}"` 
-            : selectedCategory !== 'all' 
-              ? 'Không có sản phẩm trong danh mục này' 
-              : 'Không tìm thấy sản phẩm nào'}
-      </Text>
-    </View>
-  );
-
-  // Toggle search mode and focus on search input
-  const toggleSearchMode = useCallback(() => {
-    setSearchMode(true);
-  }, []);
-
-  // Banner Carousel
-  const renderCarousel = () => (
-    <View style={styles.carouselContainer}>
-      <Carousel
-        ref={carouselRef}
-        width={width}
-        height={width * 0.5}
-        data={banners}
-        renderItem={renderBannerItem}
-        onSnapToItem={(index) => setActiveSlide(index)}
-        loop
-        autoPlay={true}
-        autoPlayInterval={5000}
-      />
-      <View style={styles.paginationContainer}>
-        {banners.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.paginationDot,
-              { backgroundColor: index === activeSlide ? colors.primary : '#E0E0E0' }
-            ]}
-          />
-        ))}
-      </View>
-    </View>
-  );
-
   // Logo navigation handler
   const handleLogoPress = useCallback(() => {
-    // @ts-ignore - Router type definition might be missing
     router.push('/');
   }, [router]);
 
   const handleCartPress = useCallback(() => {
-    // @ts-ignore - Router type definition might be missing
     router.push('/cart');
   }, [router]);
 
-  const handleSearchPress = useCallback(() => {
-    setSearchMode(true);
-  }, []);
-
-  const handleSearchClear = useCallback(() => {
-    setSearchQuery('');
-    handleSearch('');
-  }, [handleSearch]);
-
-  // Handle add to cart
-  const handleAddToCart = useCallback((id: string) => {
-    const product = products.find(p => p.id === id);
-    if (product) {
-      // Add to cart logic here
-      console.log('Adding to cart:', product);
-    }
-  }, [products]);
-
-  // Handle banner close
-  const handleBannerClose = useCallback(() => {
-    console.log('Handling banner close in HomeScreen');
-    setShowBannerPopup(false);
-  }, []);
+  const handleProductPress = useCallback((productId: string) => {
+    router.push(`/product/${productId}`);
+  }, [router]);
 
   const navigationProps = {
     showLogo: true,
@@ -383,22 +202,15 @@ export default function HomeScreen() {
     onCartPress: handleCartPress,
     onSearchPress: handleSearchPress,
     activeTab: 'home' as const,
-    onHomePress: () => {},
-    onProductsPress: () => router.push('/'),
+    onHomePress: () => { },
+    onProductsPress: () => router.push('/explore'),
     onAccountPress: () => router.push('/account'),
   };
 
-  const searchNavigationProps = {
-    ...navigationProps,
-    showBackButton: true,
-    showLogo: false,
-    showCart: true,
-    onBackPress: () => setSearchMode(false),
-    onSearchChange: handleSearch,
-    onSearchClear: handleSearchClear,
-    searchValue: searchQuery,
-    isSearchActive: true,
-  };
+  const handleBannerClose = useCallback(() => {
+    console.log('Closing banner...');
+    setShowBannerPopup(false); // Chỉ ẩn banner, không xóa data
+  }, []);
 
   if (isLoading && !isRefreshing) {
     return (
@@ -407,89 +219,6 @@ export default function HomeScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={[styles.loadingText, { color: colors.text }]}>Đang tải dữ liệu...</Text>
         </View>
-      </CustomerLayout>
-    );
-  }
-
-  // Render màn hình danh sách sản phẩm (khi đang tìm kiếm hoặc xem tất cả)
-  if (searchMode) {
-    return (
-      <CustomerLayout
-        {...searchNavigationProps}
-        scrollEnabled={false}
-      >
-        {/* Danh mục sản phẩm */}
-        <View style={styles.categoriesContainer}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesScroll}
-          >
-            <TouchableOpacity
-              style={[
-                styles.categoryTag,
-                {
-                  backgroundColor: selectedCategory === 'all' ? colors.primary : colors.cardBackground,
-                  borderColor: colors.separator,
-                }
-              ]}
-              onPress={() => handleCategorySelect('all')}
-            >
-              <Text
-                style={[
-                  styles.categoryTagText,
-                  { color: selectedCategory === 'all' ? 'white' : colors.text }
-                ]}
-              >
-                Tất cả
-              </Text>
-            </TouchableOpacity>
-
-            {categories.map((category) => (
-              <TouchableOpacity
-                key={category.id}
-                style={[
-                  styles.categoryTag,
-                  {
-                    backgroundColor: selectedCategory === category.id ? colors.primary : colors.cardBackground,
-                    borderColor: colors.separator,
-                  }
-                ]}
-                onPress={() => handleCategorySelect(category.id)}
-              >
-                <Text
-                  style={[
-                    styles.categoryTagText,
-                    { color: selectedCategory === category.id ? 'white' : colors.text }
-                  ]}
-                >
-                  {category.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Danh sách sản phẩm */}
-        <FlatList
-          data={filteredProducts}
-          renderItem={renderProductItem}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.productColumnWrapper}
-          contentContainerStyle={styles.productListContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-          ListEmptyComponent={renderEmptyList}
-        />
-
       </CustomerLayout>
     );
   }
@@ -510,12 +239,12 @@ export default function HomeScreen() {
       >
         {/* Banner Carousel */}
         {sliders?.length > 0 && (
-          <CarouselBanner 
-            data={sliders.map(slider => ({ 
-              id: slider.id, 
+          <CarouselBanner
+            data={sliders.map(slider => ({
+              id: slider.id,
               image: slider.image,
               uri: slider.image
-            }))} 
+            }))}
           />
         )}
 
@@ -523,27 +252,15 @@ export default function HomeScreen() {
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Danh mục sản phẩm</Text>
-            <TouchableOpacity onPress={() => handleSeeAll()}>
+            <TouchableOpacity onPress={handleSeeAll}>
               <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
             </TouchableOpacity>
           </View>
-          
+
           <FlatList
-            data={categories.slice(0, 4)}
+            data={categories}
             horizontal
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={[styles.categoryItem, { backgroundColor: colors.cardBackground }]}
-                onPress={() => handleCategorySelect(item.id)}
-              >
-                <View style={[styles.categoryIconCircle, { backgroundColor: colors.primary + '20' }]}>
-                  <Ionicons name="cube-outline" size={24} color={colors.primary} />
-                </View>
-                <Text style={[styles.categoryItemText, { color: colors.text }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-              </TouchableOpacity>
-            )}
+            renderItem={renderCategoryItem}
             keyExtractor={(item) => item.id}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.categoryListContainer}
@@ -554,11 +271,11 @@ export default function HomeScreen() {
         <View style={styles.sectionContainer}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>Sản phẩm hot</Text>
-            <TouchableOpacity onPress={() => handleSeeAll()}>
+            <TouchableOpacity onPress={handleSeeAll}>
               <Text style={[styles.seeAllText, { color: colors.primary }]}>Xem tất cả</Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.productsGrid}>
             {products.map(item => (
               <ProductCardResponsive
@@ -568,7 +285,6 @@ export default function HomeScreen() {
                 price={item.price}
                 image={item.image}
                 onPress={handleProductPress}
-                onAddToCart={handleAddToCart}
               />
             ))}
           </View>
@@ -577,11 +293,15 @@ export default function HomeScreen() {
       </ScrollView>
 
       {/* Banner Popup */}
-      {/* <BannerPopup
-        banner={bannerPopup}
-        visible={showBannerPopup}
-        onClose={handleBannerClose}
-      /> */}
+      {
+        showBannerPopup && (
+          <BannerPopup
+            banner={bannerPopup}
+            onClose={handleBannerClose}
+          />
+        )
+      }
+
 
     </CustomerLayout>
   );
@@ -960,13 +680,12 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   categoryIconCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#f8e7f8',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   categoryItemText: {
     textAlign: 'center',
@@ -1022,5 +741,10 @@ const styles = StyleSheet.create({
   productGridContainer: {
     paddingHorizontal: 12,
     paddingBottom: 16,
+  },
+  categoryImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
   },
 }); 

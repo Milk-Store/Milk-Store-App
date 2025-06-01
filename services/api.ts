@@ -5,12 +5,10 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
-// Cấu hình URL API server
-// Thay thế bằng địa chỉ IP thực tế của máy chủ trong mạng nội bộ
-// Ví dụ: const SERVER_IP = '192.168.1.5'; 
-const SERVER_IP = '192.168.1.235'; // IP từ server log
-const SERVER_PORT = '8000';
-const API_BASE_URL = 'https://ca94-14-243-81-73.ngrok-free.app/api';
+// API Configuration from environment variables
+const API_CONFIG = {
+  BASE_URL: process.env.REACT_APP_API_URL,
+};
 
 // Timeout cho API requests (ms)
 const API_TIMEOUT = 15000;
@@ -18,7 +16,7 @@ const CACHE_EXPIRY = 5 * 60 * 1000; // 5 phút cache cho GET requests
 const MAX_RETRIES = 2;
 
 // Debug API URL
-console.log('API URL:', API_BASE_URL);
+console.log('API URL:', API_CONFIG.BASE_URL);
 
 // Cache structure
 interface CacheEntry {
@@ -94,7 +92,7 @@ const refreshAuthToken = async () => {
       throw new Error('No refresh token available');
     }
 
-    const response = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
+    const response = await fetchWithTimeout(`${API_CONFIG.BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -200,8 +198,8 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
       options.body = JSON.stringify(body);
     }
 
-    console.log(`Calling API: ${method} ${API_BASE_URL}${endpoint}`);
-    const response = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, options, API_TIMEOUT);
+    console.log(`Calling API: ${method} ${API_CONFIG.BASE_URL}${endpoint}`);
+    const response = await fetchWithTimeout(`${API_CONFIG.BASE_URL}${endpoint}`, options, API_TIMEOUT);
 
     // Kiểm tra nếu token hết hạn
     if (response.status === 401 && requiresAuth) {
@@ -211,7 +209,7 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
           failedQueue.push({ resolve, reject });
         }).then(token => {
           headers['Authorization'] = `Bearer ${token}`;
-          return fetchWithTimeout(`${API_BASE_URL}${endpoint}`, options, API_TIMEOUT)
+          return fetchWithTimeout(`${API_CONFIG.BASE_URL}${endpoint}`, options, API_TIMEOUT)
             .then(handleResponse);
         }).catch(err => {
           throw err;
@@ -234,7 +232,7 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
         processQueue(null, newToken);
 
         // Thực hiện lại request ban đầu với token mới
-        const newResponse = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, {
+        const newResponse = await fetchWithTimeout(`${API_CONFIG.BASE_URL}${endpoint}`, {
           ...options,
           headers,
         }, API_TIMEOUT);
@@ -275,7 +273,13 @@ const fetchApi = async (endpoint: string, method: string = 'GET', body?: any, re
 };
 
 // Multipart form data upload function
-const uploadWithFormData = async (endpoint: string, formData: FormData, requiresAuth: boolean = true, retryCount: number = 0) => {
+const uploadWithFormData = async (
+  endpoint: string, 
+  formData: FormData, 
+  requiresAuth: boolean = true, 
+  method: string = 'POST',
+  retryCount: number = 0
+) => {
   try {
     // Check network connection
     const isConnected = await checkNetwork();
@@ -294,9 +298,9 @@ const uploadWithFormData = async (endpoint: string, formData: FormData, requires
       }
     }
 
-    console.log(`Uploading to: ${API_BASE_URL}${endpoint}`);
-    const response = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, {
-      method: 'POST',
+    console.log(`Uploading to: ${API_CONFIG.BASE_URL}${endpoint}`);
+    const response = await fetchWithTimeout(`${API_CONFIG.BASE_URL}${endpoint}`, {
+      method,
       headers,
       body: formData,
       // Bỏ credentials
@@ -312,8 +316,8 @@ const uploadWithFormData = async (endpoint: string, formData: FormData, requires
         headers['Authorization'] = `Bearer ${newToken}`;
 
         // Thực hiện lại request với token mới
-        const newResponse = await fetchWithTimeout(`${API_BASE_URL}${endpoint}`, {
-          method: 'POST',
+        const newResponse = await fetchWithTimeout(`${API_CONFIG.BASE_URL}${endpoint}`, {
+          method,
           headers,
           body: formData,
         }, API_TIMEOUT * 2);
@@ -329,7 +333,7 @@ const uploadWithFormData = async (endpoint: string, formData: FormData, requires
       console.log(`Server error during upload, retrying (${retryCount + 1}/${MAX_RETRIES})...`);
       const delay = 1000 * Math.pow(2, retryCount);
       await new Promise(resolve => setTimeout(resolve, delay));
-      return uploadWithFormData(endpoint, formData, requiresAuth, retryCount + 1);
+      return uploadWithFormData(endpoint, formData, requiresAuth, method, retryCount + 1);
     }
 
     return await handleResponse(response);
@@ -548,14 +552,15 @@ export const api = {
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : 'image/jpeg';
         
-        formData.append('image', {
+        const imageFile = {
           uri: imageUri,
+          type: type,
           name: filename,
-          type,
-        } as any);
+        };
+        formData.append('image', imageFile as any);
       }
       
-      return await fetchApi('/products/admin', 'POST', formData, true);
+      return await uploadWithFormData('/products', formData, true, 'POST');
     },
 
     update: async (
@@ -570,24 +575,25 @@ export const api = {
         formData.append(key, value.toString());
       });
       
-      // Add image if provided
-      if (imageUri) {
+      // Add image if provided and it's a new image (not a URL)
+      if (imageUri && !imageUri.startsWith('http')) {
         const filename = imageUri.split('/').pop() || 'image.jpg';
         const match = /\.(\w+)$/.exec(filename);
         const type = match ? `image/${match[1]}` : 'image/jpeg';
         
-        formData.append('image', {
+        const imageFile = {
           uri: imageUri,
+          type: type,
           name: filename,
-          type,
-        } as any);
+        };
+        formData.append('image', imageFile as any);
       }
       
-      return await fetchApi(`/products/admin/${id}`, 'PUT', formData, true);
+      return await uploadWithFormData(`/products/${id}`, formData, true, 'PUT');
     },
 
     delete: async (id: string): Promise<void> => {
-      await fetchApi(`/products/admin/${id}`, 'DELETE');
+      await fetchApi(`/products/${id}`, 'DELETE', undefined, true, false);
     }
   },
 
@@ -597,14 +603,50 @@ export const api = {
       return await fetchApi('/categories', 'GET', undefined, false, !forceRefresh);
     },
 
-    create: async (name: string) => {
-      const result = await fetchApi('/categories', 'POST', { name }, true, false);
+    create: async (name: string, imageUri: string) => {
+      const formData = new FormData();
+      formData.append('name', name);
+
+      // Add image if provided
+      if (imageUri) {
+        const filename = imageUri.split('/').pop() || 'image.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        // Sửa lại cách tạo FormData cho file
+        const imageFile = {
+          uri: imageUri,
+          type: type,
+          name: filename,
+        };
+        formData.append('image', imageFile as any);
+      }
+
+      const result = await uploadWithFormData('/categories', formData, true, 'POST');
       clearCacheByPattern('/categories');
       return result;
     },
 
-    update: async (categoryId: string, name: string) => {
-      const result = await fetchApi(`/categories/${categoryId}`, 'PUT', { name }, true, false);
+    update: async (categoryId: string, name: string, imageUri: string) => {
+      const formData = new FormData();
+      formData.append('name', name);
+
+      // Add image if provided and it's a new image (not a URL)
+      if (imageUri && !imageUri.startsWith('http')) {
+        const filename = imageUri.split('/').pop() || 'image.jpg';
+        const match = /\.(\w+)$/.exec(filename);
+        const type = match ? `image/${match[1]}` : 'image/jpeg';
+        
+        // Sửa lại cách tạo FormData cho file
+        const imageFile = {
+          uri: imageUri,
+          type: type,
+          name: filename,
+        };
+        formData.append('image', imageFile as any);
+      }
+
+      const result = await uploadWithFormData(`/categories/${categoryId}`, formData, true, 'PUT');
       clearCacheByPattern('/categories');
       return result;
     },
@@ -626,9 +668,7 @@ export const api = {
           undefined,
           true,
           !forceRefresh
-        );
-        console.log('API Response:', response);
-        
+        );        
         // Trả về đúng format từ response
         return {
           orders: response.orders || [],
@@ -647,6 +687,7 @@ export const api = {
 
     create: async (orderData: {
       phone: string;
+      name: string;
       orderItems: Array<{ product_id: number; quantity: number }>;
     }) => {
       const result = await fetchApi('/orders', 'POST', orderData, false, false);
@@ -698,5 +739,16 @@ export const api = {
     unregisterToken: async () => {
       return await fetchApi('/notifications/unregister-token', 'POST', undefined, true, false);
     }
-  }
+  },
+
+  analytics: {
+    getDashboardOverview: async (params?: { fromDate?: string; toDate?: string; year?: number }) => {
+      const queryParams = new URLSearchParams();
+      if (params?.fromDate) queryParams.append('fromDate', params.fromDate);
+      if (params?.toDate) queryParams.append('toDate', params.toDate);
+      if (params?.year) queryParams.append('year', params.year.toString());
+      
+      return await fetchApi(`/analytics/overview?${queryParams}`, 'GET', undefined, true, true);
+    },
+  },
 }; 

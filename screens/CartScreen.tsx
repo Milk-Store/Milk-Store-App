@@ -8,6 +8,11 @@ import {
   Image,
   Alert,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -18,6 +23,7 @@ import { formatCurrency } from '../utils/format';
 import Button from '../components/ui/Button';
 import { api } from '../services/api';
 import { MainLayout } from '../layouts';
+import { Captcha } from '../components/Captcha';
 
 export default function CartScreen() {
   const router = useRouter();
@@ -27,15 +33,34 @@ export default function CartScreen() {
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
+  const [isCaptchaValid, setIsCaptchaValid] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Check if cart is empty
   const isCartEmpty = useMemo(() => cart.items.length === 0, [cart.items]);
   
+  // Check if form is valid
+  const isFormValid = useMemo(() => {
+    return phone.trim() !== '' && name.trim() !== '' && isCaptchaValid;
+  }, [phone, name, isCaptchaValid]);
+  
   // Handle checkout
   const handleCheckout = async () => {
-    if (!phone.trim()) {
-      Alert.alert('Thông báo', 'Vui lòng nhập số điện thoại để tiếp tục.');
+    if (!isFormValid) {
+      if (!phone.trim()) {
+        Alert.alert('Thông báo', 'Vui lòng nhập số điện thoại để tiếp tục.');
+        return;
+      }
+
+      if (!name.trim()) {
+        Alert.alert('Thông báo', 'Vui lòng nhập họ tên để tiếp tục.');
+        return;
+      }
+
+      if (!isCaptchaValid) {
+        Alert.alert('Thông báo', 'Vui lòng nhập đúng mã Captcha để tiếp tục.');
+        return;
+      }
       return;
     }
     
@@ -49,8 +74,9 @@ export default function CartScreen() {
       
       const orderData = {
         phone: phone.trim(),
+        name: name.trim(),
         items: cart.items.map(item => ({
-          product_id: item.product.id,
+          product_id: Number(item.product.id),
           quantity: item.quantity
         })),
         total: cart.total
@@ -175,83 +201,134 @@ export default function CartScreen() {
   );
   
   return (
-    <MainLayout
-      showBackButton={true}
-      showLogo={false}
-      showCart={false}
-      showSearch={false}
-      title="Giỏ hàng"
-      onBackPress={handleBack}
-      scrollEnabled={false}
-    >
-      {isCartEmpty ? (
-        renderEmptyCart()
-      ) : (
-        <FlatList
-          data={cart.items}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.product.id}
-          contentContainerStyle={styles.cartList}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
-      
-      {!isCartEmpty && (
-        <View style={[styles.bottomContainer, { borderTopColor: colors.separator }]}>
-          {/* Customer Information */}
-          <View style={styles.customerInfoContainer}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Thông tin đặt hàng
-            </Text>
-            
-            <View style={[styles.inputContainer, { borderColor: colors.separator, backgroundColor: colors.cardBackground }]}>
-              <TextInput
-                placeholder="Số điện thoại *"
-                value={phone}
-                onChangeText={setPhone}
-                style={[styles.input, { color: colors.text }]}
-                placeholderTextColor={colors.gray}
-                keyboardType="phone-pad"
-              />
-            </View>
-          </View>
-          
-          {/* Order Summary */}
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.text }]}>
-                Tổng số sản phẩm:
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.text }]}>
-                {cart.items.reduce((sum, item) => sum + item.quantity, 0)}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.text }]}>
-                Tổng tiền:
-              </Text>
-              <Text style={[styles.summaryValue, { color: colors.primary, fontWeight: 'bold' }]}>
-                {formatCurrency(cart.total)}
-              </Text>
-            </View>
-          </View>
-          
-          {/* Checkout Button */}
-          <Button
-            title="Đặt hàng"
-            onPress={handleCheckout}
-            variant="primary"
-            size="large"
-            fullWidth
-            loading={isSubmitting}
-          />
-        </View>
-      )}
-    </MainLayout>
+    <View style={styles.container}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="transparent"
+        translucent
+      />
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.keyboardAvoidingView}
+        >
+          <MainLayout
+            showBackButton={true}
+            showLogo={false}
+            showCart={false}
+            showSearch={false}
+            title="Giỏ hàng"
+            onBackPress={handleBack}
+            scrollEnabled={false}
+          >
+            {isCartEmpty ? (
+              renderEmptyCart()
+            ) : (
+              <View style={styles.contentContainer}>
+                <FlatList
+                  data={cart.items}
+                  renderItem={renderItem}
+                  keyExtractor={(item) => item.product.id}
+                  contentContainerStyle={styles.cartList}
+                  showsVerticalScrollIndicator={false}
+                />
+                
+                {!isCartEmpty && (
+                  <ScrollView 
+                    style={styles.bottomScrollView}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <View style={[styles.bottomContainer, { borderTopColor: colors.separator }]}>
+                      {/* Customer Information */}
+                      <View style={styles.customerInfoContainer}>
+                        <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                          Thông tin đặt hàng
+                        </Text>
+                        
+                        <View style={[styles.inputContainer, { borderColor: colors.separator, backgroundColor: colors.cardBackground }]}>
+                          <TextInput
+                            placeholder="Họ tên *"
+                            value={name}
+                            onChangeText={setName}
+                            style={[styles.input, { color: colors.text }]}
+                            placeholderTextColor={colors.gray}
+                          />
+                        </View>
+
+                        <View style={[styles.inputContainer, { borderColor: colors.separator, backgroundColor: colors.cardBackground }]}>
+                          <TextInput
+                            placeholder="Số điện thoại *"
+                            value={phone}
+                            onChangeText={setPhone}
+                            style={[styles.input, { color: colors.text }]}
+                            placeholderTextColor={colors.gray}
+                            keyboardType="phone-pad"
+                          />
+                        </View>
+
+                        <Captcha onValidate={setIsCaptchaValid} />
+                      </View>
+                      
+                      {/* Order Summary */}
+                      <View style={styles.summaryContainer}>
+                        <View style={styles.summaryRow}>
+                          <Text style={[styles.summaryLabel, { color: colors.text }]}>
+                            Tổng số sản phẩm:
+                          </Text>
+                          <Text style={[styles.summaryValue, { color: colors.text }]}>
+                            {cart.items.reduce((sum, item) => sum + item.quantity, 0)}
+                          </Text>
+                        </View>
+                        <View style={styles.summaryRow}>
+                          <Text style={[styles.summaryLabel, { color: colors.text }]}>
+                            Tổng tiền:
+                          </Text>
+                          <Text style={[styles.summaryValue, { color: colors.primary, fontWeight: 'bold' }]}>
+                            {formatCurrency(cart.total)}
+                          </Text>
+                        </View>
+                      </View>
+                      
+                      {/* Checkout Button */}
+                      <Button
+                        title="Đặt hàng"
+                        onPress={handleCheckout}
+                        variant="primary"
+                        size="large"
+                        fullWidth
+                        loading={isSubmitting}
+                        disabled={!isFormValid || isSubmitting}
+                      />
+                    </View>
+                  </ScrollView>
+                )}
+              </View>
+            )}
+          </MainLayout>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  safeArea: {
+    flex: 1,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
+  },
+  keyboardAvoidingView: {
+    flex: 1,
+  },
+  contentContainer: {
+    flex: 1,
+  },
+  bottomScrollView: {
+    flexGrow: 0,
+  },
   emptyCartContainer: {
     flex: 1,
     justifyContent: 'center',

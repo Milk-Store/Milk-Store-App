@@ -24,6 +24,7 @@ import AdminProducts from '../components/admin/AdminProducts';
 import AdminDashboard from '../components/admin/AdminDashboard';
 import AdminSettings from '../components/admin/AdminSettings';
 import Constants from 'expo-constants';
+import { api } from '../services/api';
 
 type AdminTab = 'dashboard' | 'categories' | 'products' | 'orders' | 'settings';
 
@@ -161,6 +162,9 @@ export default function AdminScreen() {
               <TouchableOpacity 
                 style={[styles.iconButton, { backgroundColor: colors.background }]}
                 onPress={() => {
+                  // Clear cache for dashboard and orders data
+                  api.cache.clearByPattern('/analytics/overview');
+                  api.cache.clearByPattern('/orders/admin/list');
                   setActiveTab('orders');
                   clearNotificationCount();
                 }}
