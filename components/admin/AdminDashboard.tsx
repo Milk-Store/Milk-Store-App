@@ -6,53 +6,60 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { formatCurrency } from '../../utils/format';
 import { api } from '../../services/api';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Picker } from '@react-native-picker/picker';
 
 export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: string) => void }) {
   const { colors } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState({
-    totalProducts: 0,
-    totalCategories: 0,
-    totalOrders: 0,
     totalRevenue: 0,
+    totalOrders: 0,
+    totalProducts: 0,
+    pendingOrders: 0,
   });
 
+  // Filter states
+  const [filterType, setFilterType] = useState<'year' | 'date'>('year');
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [fromDate, setFromDate] = useState(new Date());
+  const [toDate, setToDate] = useState(new Date());
+  const [showFromPicker, setShowFromPicker] = useState(false);
+  const [showToPicker, setShowToPicker] = useState(false);
+
+  // Generate year options (last 5 years)
+  const years = Array.from(
+    { length: 5 },
+    (_, i) => new Date().getFullYear() - i
+  );
+
   useEffect(() => {
+    // Clear cache before fetching new data
+    api.cache.clearByPattern('/analytics/overview');
     fetchDashboardData();
-  }, []);
+  }, [filterType, selectedYear, fromDate, toDate]);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      // Fetch data từ API thực tế
-      const [products, categories, orders] = await Promise.all([
-        api.products.getAll().catch(() => []),
-        api.categories.getAll().catch(() => []),
-        api.orders.getAll().catch(() => [])
-      ]);
-      
-      // Tính tổng doanh thu từ đơn hàng (nếu API trả về)
-      let revenue = 0;
-      if (orders && Array.isArray(orders)) {
-        // Giả sử orders có cấu trúc có trường totalAmount
-        orders.forEach((order: any) => {
-          if (order.totalAmount) {
-            revenue += order.totalAmount;
-          }
-        });
+      let params = {};
+      if (filterType === 'year') {
+        params = { year: selectedYear };
+      } else {
+        params = {
+          fromDate: fromDate.toISOString().split('T')[0],
+          toDate: toDate.toISOString().split('T')[0],
+        };
       }
-      
-      setStats({
-        totalProducts: Array.isArray(products) ? products.length : 0,
-        totalCategories: Array.isArray(categories) ? categories.length : 0,
-        totalOrders: Array.isArray(orders) ? orders.length : 0,
-        totalRevenue: revenue || 0,
-      });
+
+      const data = await api.analytics.getDashboardOverview(params);
+      setStats(data);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -60,10 +67,22 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
     }
   };
 
-  // Hàm xử lý chuyển tab
-  const handleNavigateToTab = (tab: string) => {
-    if (onTabChange) {
-      onTabChange(tab);
+  const handleDateChange = (
+    event: Event | any,
+    selectedDate: Date | undefined,
+    type: 'from' | 'to' = 'from'
+  ) => {
+    if (Platform.OS === 'android') {
+      setShowFromPicker(false);
+      setShowToPicker(false);
+    }
+
+    if (selectedDate) {
+      if (type === 'from') {
+        setFromDate(selectedDate);
+      } else {
+        setToDate(selectedDate);
+      }
     }
   };
 
@@ -85,42 +104,112 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
         Bảng điều khiển
       </Text>
 
+      {/* Filter Controls */}
+      <View style={[styles.filterContainer, { backgroundColor: colors.cardBackground }]}>
+        <View style={styles.filterTypeContainer}>
+          <TouchableOpacity
+            style={[
+              styles.filterTypeButton,
+              { backgroundColor: filterType === 'year' ? colors.primary : 'transparent' }
+            ]}
+            onPress={() => setFilterType('year')}
+          >
+            <Text style={{ color: filterType === 'year' ? 'white' : colors.text }}>Theo năm</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.filterTypeButton,
+              { backgroundColor: filterType === 'date' ? colors.primary : 'transparent' }
+            ]}
+            onPress={() => setFilterType('date')}
+          >
+            <Text style={{ color: filterType === 'date' ? 'white' : colors.text }}>Theo ngày</Text>
+          </TouchableOpacity>
+        </View>
+
+        {filterType === 'year' ? (
+          <View style={styles.yearPickerContainer}>
+            <Picker
+              selectedValue={selectedYear}
+              onValueChange={(itemValue: number) => setSelectedYear(itemValue)}
+              style={[styles.yearPicker, { color: colors.text }]}
+            >
+              {years.map(year => (
+                <Picker.Item key={year} label={year.toString()} value={year} />
+              ))}
+            </Picker>
+          </View>
+        ) : (
+          <View style={styles.datePickerContainer}>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowFromPicker(true)}
+            >
+              <Text style={{ color: colors.text }}>
+                Từ: {fromDate.toLocaleDateString()}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dateButton}
+              onPress={() => setShowToPicker(true)}
+            >
+              <Text style={{ color: colors.text }}>
+                Đến: {toDate.toLocaleDateString()}
+              </Text>
+            </TouchableOpacity>
+
+            {(showFromPicker || showToPicker) && (
+              <DateTimePicker
+                value={showFromPicker ? fromDate : toDate}
+                mode="date"
+                display="default"
+                onChange={(event, date) => 
+                  handleDateChange(event, date, showFromPicker ? 'from' : 'to')
+                }
+              />
+            )}
+          </View>
+        )}
+      </View>
+
       {/* Summary Cards */}
       <View style={styles.cardRow}>
         <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
           <View style={[styles.iconCircle, { backgroundColor: `${colors.primary}20` }]}>
-            <Ionicons name="cube-outline" size={22} color={colors.primary} />
+            <Ionicons name="cash-outline" size={22} color={colors.primary} />
           </View>
-          <Text style={[styles.cardValue, { color: colors.text }]}>{stats.totalProducts}</Text>
-          <Text style={[styles.cardLabel, { color: colors.gray }]}>Sản phẩm</Text>
+          <Text style={[styles.cardValue, { color: colors.text }]}>
+            {formatCurrency(stats.totalRevenue)}
+          </Text>
+          <Text style={[styles.cardLabel, { color: colors.gray }]}>Doanh thu</Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
           <View style={[styles.iconCircle, { backgroundColor: `${colors.accent}20` }]}>
-            <Ionicons name="list-outline" size={22} color={colors.accent} />
+            <Ionicons name="receipt-outline" size={22} color={colors.accent} />
           </View>
-          <Text style={[styles.cardValue, { color: colors.text }]}>{stats.totalCategories}</Text>
-          <Text style={[styles.cardLabel, { color: colors.gray }]}>Danh mục</Text>
+          <Text style={[styles.cardValue, { color: colors.text }]}>{stats.totalOrders}</Text>
+          <Text style={[styles.cardLabel, { color: colors.gray }]}>Tổng đơn hàng</Text>
         </View>
       </View>
 
       <View style={styles.cardRow}>
         <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
           <View style={[styles.iconCircle, { backgroundColor: '#4CD96420' }]}>
-            <Ionicons name="receipt-outline" size={22} color="#4CD964" />
+            <Ionicons name="cube-outline" size={22} color="#4CD964" />
           </View>
-          <Text style={[styles.cardValue, { color: colors.text }]}>{stats.totalOrders}</Text>
-          <Text style={[styles.cardLabel, { color: colors.gray }]}>Tổng đơn hàng</Text>
+          <Text style={[styles.cardValue, { color: colors.text }]}>{stats.totalProducts}</Text>
+          <Text style={[styles.cardLabel, { color: colors.gray }]}>Tổng sản phẩm</Text>
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.cardBackground }]}>
           <View style={[styles.iconCircle, { backgroundColor: '#FF980020' }]}>
-            <Ionicons name="cash-outline" size={22} color="#FF9800" />
+            <Ionicons name="time-outline" size={22} color="#FF9800" />
           </View>
           <Text style={[styles.cardValue, { color: colors.text }]}>
-            {formatCurrency(stats.totalRevenue)}
+            {stats.pendingOrders}
           </Text>
-          <Text style={[styles.cardLabel, { color: colors.gray }]}>Doanh thu</Text>
+          <Text style={[styles.cardLabel, { color: colors.gray }]}>Đơn chờ xử lý</Text>
         </View>
       </View>
 
@@ -133,7 +222,7 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
         <View style={styles.actionRow}>
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: colors.cardBackground }]}
-            onPress={() => handleNavigateToTab('products')}
+            onPress={() => onTabChange?.('products')}
           >
             <Ionicons name="cube-outline" size={24} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.text }]}>Quản lý sản phẩm</Text>
@@ -141,7 +230,7 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
           
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: colors.cardBackground }]}
-            onPress={() => handleNavigateToTab('categories')}
+            onPress={() => onTabChange?.('categories')}
           >
             <Ionicons name="folder-outline" size={24} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.text }]}>Quản lý danh mục</Text>
@@ -151,7 +240,7 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
         <View style={styles.actionRow}>
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: colors.cardBackground }]}
-            onPress={() => handleNavigateToTab('orders')}
+            onPress={() => onTabChange?.('orders')}
           >
             <Ionicons name="receipt-outline" size={24} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.text }]}>Quản lý đơn hàng</Text>
@@ -159,7 +248,7 @@ export default function AdminDashboard({ onTabChange }: { onTabChange?: (tab: st
           
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: colors.cardBackground }]}
-            onPress={() => handleNavigateToTab('settings')}
+            onPress={() => onTabChange?.('settings')}
           >
             <Ionicons name="settings-outline" size={24} color={colors.primary} />
             <Text style={[styles.actionText, { color: colors.text }]}>Cài đặt</Text>
@@ -192,6 +281,47 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 16,
     marginTop: 8,
+  },
+  filterContainer: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  filterTypeContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  filterTypeButton: {
+    flex: 1,
+    padding: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+    marginHorizontal: 4,
+  },
+  yearPickerContainer: {
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  yearPicker: {
+    height: 50,
+  },
+  datePickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  dateButton: {
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    flex: 1,
+    marginHorizontal: 4,
+    alignItems: 'center',
   },
   cardRow: {
     flexDirection: 'row',

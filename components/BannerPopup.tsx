@@ -7,18 +7,16 @@ import { Ionicons } from '@expo/vector-icons';
 
 interface BannerPopupProps {
   banner: BannerPopupType | null;
-  visible: boolean;
   onClose: () => void;
 }
 
-const BannerPopup: React.FC<BannerPopupProps> = ({ banner, visible, onClose }) => {
+const BannerPopup: React.FC<BannerPopupProps> = ({ banner, onClose }) => {
   const { colors } = useTheme();
   const windowWidth = Dimensions.get('window').width;
   const windowHeight = Dimensions.get('window').height;
 
   console.log('BannerPopup render with:', { 
     hasBanner: !!banner, 
-    visible,
     bannerData: banner 
   });
 
@@ -28,8 +26,8 @@ const BannerPopup: React.FC<BannerPopupProps> = ({ banner, visible, onClose }) =
   };
 
   // Không render gì nếu không có banner hoặc visible là false
-  if (!visible || !banner) {
-    console.log('BannerPopup not rendering because:', { visible, hasBanner: !!banner });
+  if (!banner) {
+    console.log('BannerPopup not rendering because:', { hasBanner: !!banner });
     return null;
   }
 
@@ -37,7 +35,6 @@ const BannerPopup: React.FC<BannerPopupProps> = ({ banner, visible, onClose }) =
     <Modal
       animationType="fade"
       transparent={true}
-      visible={visible}
       onRequestClose={handleClose}
       statusBarTranslucent={true}
     >
@@ -75,7 +72,7 @@ const BannerPopup: React.FC<BannerPopupProps> = ({ banner, visible, onClose }) =
             
             <View style={styles.bannerInfo}>
               <Text style={[styles.title, { color: colors.text }]}>{banner.title}</Text>
-              <Text style={[styles.description, { color: colors.secondary }]}>
+              <Text style={[styles.description, { color: colors.primary }]}>
                 {banner.description}
               </Text>
             </View>

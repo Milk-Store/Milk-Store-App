@@ -9,14 +9,22 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  Image,
+  Platform,
+  KeyboardAvoidingView,
+  SafeAreaView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../contexts/ThemeContext';
 import { api } from '../../services/api';
+import * as ImagePicker from 'expo-image-picker';
 
 type Category = {
   id: string;
   name: string;
+  image: string;
 };
 
 export default function AdminCategories() {
@@ -27,24 +35,55 @@ export default function AdminCategories() {
   const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null);
   const [categoryName, setCategoryName] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
 
   useEffect(() => {
     fetchCategories();
+    requestImagePermission();
   }, []);
+
+  const requestImagePermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Quyền truy cập bị từ chối', 'Chúng tôi cần quyền truy cập vào thư viện ảnh của bạn');
+    }
+  };
 
   const fetchCategories = async () => {
     setIsLoading(true);
     try {
-      // Gọi API để lấy danh sách danh mục
       const data = await api.categories.getAll();
-      
       console.log('Categories loaded:', data);
       setCategories(data);
     } catch (error) {
       console.error('Error fetching categories:', error);
-      Alert.alert('Error', 'Failed to load categories');
+      Alert.alert('Lỗi', 'Không thể tải danh sách danh mục');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      setIsPickerVisible(true);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      setIsPickerVisible(false);
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const selectedAsset = result.assets[0];
+        setImagePreview(selectedAsset.uri);
+      }
+    } catch (error) {
+      setIsPickerVisible(false);
+      console.error('Error picking image:', error);
+      Alert.alert('Lỗi', 'Không thể chọn hình ảnh');
     }
   };
 
@@ -52,6 +91,7 @@ export default function AdminCategories() {
     setModalMode('add');
     setCurrentCategory(null);
     setCategoryName('');
+    setImagePreview(null);
     setIsModalVisible(true);
   };
 
@@ -59,17 +99,18 @@ export default function AdminCategories() {
     setModalMode('edit');
     setCurrentCategory(category);
     setCategoryName(category.name);
+    setImagePreview(category.image);
     setIsModalVisible(true);
   };
 
   const handleDeleteCategory = (categoryId: string) => {
     Alert.alert(
-      'Confirm Deletion',
-      'Are you sure you want to delete this category?',
+      'Xác nhận xóa',
+      'Bạn có chắc chắn muốn xóa danh mục này?',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Hủy', style: 'cancel' },
         { 
-          text: 'Delete', 
+          text: 'Xóa', 
           style: 'destructive',
           onPress: () => confirmDeleteCategory(categoryId)
         }
@@ -79,39 +120,47 @@ export default function AdminCategories() {
 
   const confirmDeleteCategory = async (categoryId: string) => {
     try {
-      // Gọi API xóa danh mục
       await api.categories.delete(categoryId);
-      
-      // Cập nhật state
       setCategories(prevCategories => 
         prevCategories.filter(cat => cat.id !== categoryId)
       );
-      
-      Alert.alert('Success', 'Category deleted successfully');
+      Alert.alert('Thành công', 'Đã xóa danh mục');
     } catch (error) {
       console.error('Error deleting category:', error);
-      Alert.alert('Error', 'Failed to delete category');
+      Alert.alert('Lỗi', 'Không thể xóa danh mục');
     }
   };
 
-  const handleSaveCategory = async () => {
+  const validateForm = () => {
     if (!categoryName.trim()) {
-      Alert.alert('Error', 'Category name cannot be empty');
-      return;
+      Alert.alert('Lỗi', 'Tên danh mục không được để trống');
+      return false;
     }
 
+    if (!imagePreview) {
+      Alert.alert('Lỗi', 'Vui lòng chọn hình ảnh cho danh mục');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSaveCategory = async () => {
+    if (!validateForm()) return;
+    if (!imagePreview) return;
+
+    setIsSubmitting(true);
     try {
       if (modalMode === 'add') {
-        // Gọi API tạo danh mục mới
-        const newCategory = await api.categories.create(categoryName.trim());
-        
+        const newCategory = await api.categories.create(categoryName.trim(), imagePreview);
         setCategories(prevCategories => [...prevCategories, newCategory]);
-        Alert.alert('Success', 'Category added successfully');
+        Alert.alert('Thành công', 'Thêm danh mục thành công');
       } else if (modalMode === 'edit' && currentCategory) {
-        // Gọi API cập nhật danh mục
-        const updatedCategory = await api.categories.update(currentCategory.id, categoryName.trim());
-        
-        // Cập nhật state
+        const updatedCategory = await api.categories.update(
+          currentCategory.id, 
+          categoryName.trim(),
+          imagePreview
+        );
         setCategories(prevCategories => 
           prevCategories.map(cat => 
             cat.id === currentCategory.id 
@@ -119,15 +168,19 @@ export default function AdminCategories() {
               : cat
           )
         );
-        
-        Alert.alert('Success', 'Category updated successfully');
+        Alert.alert('Thành công', 'Cập nhật danh mục thành công');
       }
-      
       setIsModalVisible(false);
     } catch (error) {
       console.error('Error saving category:', error);
-      Alert.alert('Error', 'Failed to save category');
+      Alert.alert('Lỗi', 'Không thể lưu danh mục');
+    } finally {
+      setIsSubmitting(false);
     }
+  };
+
+  const dismissKeyboard = () => {
+    Keyboard.dismiss();
   };
 
   const renderCategoryItem = ({ item }: { item: Category }) => (
@@ -137,7 +190,14 @@ export default function AdminCategories() {
         { backgroundColor: colors.cardBackground, borderColor: colors.separator }
       ]}
     >
-      <Text style={[styles.categoryName, { color: colors.text }]}>{item.name}</Text>
+      <View style={styles.categoryContent}>
+        <Image 
+          source={{ uri: item.image }}
+          style={styles.categoryImage}
+          resizeMode="cover"
+        />
+        <Text style={[styles.categoryName, { color: colors.text }]}>{item.name}</Text>
+      </View>
       
       <View style={styles.actions}>
         <TouchableOpacity 
@@ -160,7 +220,7 @@ export default function AdminCategories() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: colors.text }]}>Categories</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Danh mục</Text>
         
         <TouchableOpacity 
           style={[styles.addButton, { backgroundColor: colors.primary }]}
@@ -184,7 +244,7 @@ export default function AdminCategories() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text style={[styles.emptyText, { color: colors.text }]}>
-                No categories found. Add a new category to get started.
+                Chưa có danh mục nào. Thêm danh mục mới để bắt đầu.
               </Text>
             </View>
           }
@@ -195,56 +255,98 @@ export default function AdminCategories() {
       <Modal
         visible={isModalVisible}
         transparent={true}
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setIsModalVisible(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalContent, { backgroundColor: colors.cardBackground }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>
-              {modalMode === 'add' ? 'Add New Category' : 'Edit Category'}
-            </Text>
-            
-            <TextInput
-              style={[
-                styles.input,
-                { 
-                  backgroundColor: colors.background,
-                  color: colors.text,
-                  borderColor: colors.separator
-                }
-              ]}
-              placeholder="Category Name"
-              placeholderTextColor={colors.gray}
-              value={categoryName}
-              onChangeText={setCategoryName}
-              autoFocus
-            />
-            
-            <View style={styles.modalButtons}>
-              <TouchableOpacity 
-                style={[
-                  styles.modalButton, 
-                  styles.cancelButton, 
-                  { borderColor: colors.separator }
-                ]}
-                onPress={() => setIsModalVisible(false)}
-              >
-                <Text style={[styles.buttonText, { color: colors.text }]}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.modalButton, 
-                  styles.saveButton, 
-                  { backgroundColor: colors.primary }
-                ]}
-                onPress={handleSaveCategory}
-              >
-                <Text style={[styles.buttonText, { color: 'white' }]}>Save</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <SafeAreaView style={styles.modalContainer}>
+            <TouchableWithoutFeedback onPress={dismissKeyboard}>
+              <View style={[styles.modalContent, { backgroundColor: colors.cardBackground }]}>
+                <View style={styles.modalHeader}>
+                  <Text style={[styles.modalTitle, { color: colors.text }]}>
+                    {modalMode === 'add' ? 'Thêm danh mục mới' : 'Chỉnh sửa danh mục'}
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => setIsModalVisible(false)}
+                    hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+                  >
+                    <Ionicons name="close-outline" size={24} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.fieldLabel, { color: colors.gray }]}>Tên danh mục *</Text>
+                <TextInput
+                  style={[styles.input, { color: colors.text, borderColor: colors.separator }]}
+                  value={categoryName}
+                  onChangeText={setCategoryName}
+                  placeholder="Nhập tên danh mục"
+                  placeholderTextColor={colors.gray}
+                />
+
+                <Text style={[styles.fieldLabel, { color: colors.gray }]}>Hình ảnh *</Text>
+                <TouchableOpacity 
+                  style={[styles.imageSelector, { borderColor: imagePreview ? colors.primary : colors.separator }]}
+                  onPress={pickImage}
+                  activeOpacity={0.7}
+                  disabled={isPickerVisible}
+                >
+                  {imagePreview ? (
+                    <>
+                      <Image 
+                        source={{ uri: imagePreview }} 
+                        style={styles.previewImage} 
+                        resizeMode="cover"
+                      />
+                      <View style={styles.imageEditOverlay}>
+                        <Ionicons name="camera" size={24} color="#FFFFFF" />
+                        <Text style={styles.imageEditText}>Đổi ảnh</Text>
+                      </View>
+                    </>
+                  ) : (
+                    <View style={styles.placeholderContainer}>
+                      <Ionicons name="image-outline" size={32} color={colors.gray} />
+                      <Text style={[styles.placeholderText, { color: colors.gray }]}>
+                        Bấm để chọn ảnh
+                      </Text>
+                    </View>
+                  )}
+                  {isPickerVisible && (
+                    <View style={styles.loadingOverlay}>
+                      <ActivityIndicator size="large" color={colors.primary} />
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.cancelButton, { borderColor: colors.separator }]}
+                    onPress={() => setIsModalVisible(false)}
+                    disabled={isSubmitting}
+                  >
+                    <Text style={[styles.buttonText, { color: colors.text }]}>Hủy</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.saveButton, { backgroundColor: colors.primary }]}
+                    onPress={handleSaveCategory}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={[styles.buttonText, { color: 'white' }]}>
+                        {modalMode === 'add' ? 'Thêm' : 'Cập nhật'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -289,10 +391,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 12,
     borderRadius: 12,
     borderWidth: 1,
     marginBottom: 12,
+  },
+  categoryContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  categoryImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
   },
   categoryName: {
     fontSize: 16,
@@ -322,11 +435,10 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    padding: 16,
   },
   modalContent: {
-    width: '80%',
     borderRadius: 12,
     padding: 20,
     elevation: 5,
@@ -335,23 +447,81 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 8,
   },
   input: {
-    height: 50,
+    height: 46,
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 12,
     fontSize: 16,
     marginBottom: 16,
   },
+  imageSelector: {
+    height: 150,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  previewImage: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+  },
+  placeholderContainer: {
+    alignItems: 'center',
+  },
+  placeholderText: {
+    marginTop: 8,
+  },
+  imageEditOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imageEditText: {
+    color: '#FFFFFF',
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 20,
   },
   modalButton: {
     flex: 1,

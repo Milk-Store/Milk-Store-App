@@ -1,25 +1,24 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useTheme } from '../contexts/ThemeContext';
 import { scale, normalize } from '../styles/responsive';
 
 type FooterProps = {
-  activeTab?: 'home' | 'products' | 'cart' | 'account';
-  onHomePress?: () => void;
-  onProductsPress?: () => void;
-  onCartPress?: () => void;
-  onAccountPress?: () => void;
   showInfo?: boolean;
 };
 
-const Footer: React.FC<FooterProps> = () => {
+const Footer: React.FC<FooterProps> = ({ showInfo = true }) => {
   const { colors } = useTheme();
 
+  const handleCall = () => {
+    Linking.openURL('tel:0906532932');
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {showInfo && (
         <View style={[styles.footerInfo, { backgroundColor: colors.cardBackground }]}>
           <View style={styles.footerTop}>
             <Image
@@ -27,49 +26,66 @@ const Footer: React.FC<FooterProps> = () => {
               style={styles.footerLogo}
               contentFit="contain"
             />
-            <Text style={[styles.footerTagline, { color: colors.text }]}>
-              Vì sức khỏe của gia đình bạn
+            <Text style={[styles.footerTitle, { color: colors.text }]}>
+              THẾ GIỚI SỮA MẸ XÍU
             </Text>
-            <View style={styles.socialLinks}>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-facebook" size={24} color="#3b5998" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-instagram" size={24} color="#e1306c" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-youtube" size={24} color="#ff0000" />
-              </TouchableOpacity>
-            </View>
+            <Text style={[styles.footerTagline, { color: colors.text }]}>
+              Chăm sóc dinh dưỡng cho mẹ và bé
+            </Text>
           </View>
           
           <View style={styles.contactInfo}>
-            <View style={styles.contactItem}>
+            <TouchableOpacity style={styles.contactItem} onPress={handleCall}>
               <Ionicons name="call-outline" size={18} color={colors.primary} />
               <Text style={[styles.contactText, { color: colors.text }]}>
-                Hotline: 1900 6789
+                Hotline: 0906532932
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.contactItem}>
+              <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
+              <Text style={[styles.contactText, { color: colors.text }]}>
+                CSKH: 0902741222 (Zalo)
               </Text>
             </View>
             <View style={styles.contactItem}>
-              <Ionicons name="mail-outline" size={18} color={colors.primary} />
+              <Ionicons name="chatbubble-outline" size={18} color={colors.primary} />
               <Text style={[styles.contactText, { color: colors.text }]}>
-                Email: support@milkshop.vn
+                CSKH: 0798932932 (Zalo)
               </Text>
             </View>
             <View style={styles.contactItem}>
               <Ionicons name="location-outline" size={18} color={colors.primary} />
               <Text style={[styles.contactText, { color: colors.text }]}>
-                Địa chỉ: 123 Đường ABC, Quận XYZ, TP. HCM
+                CN1: 84 ÂU CƠ, HOÀ KHÁNH BẮC, LIÊN CHIỂU, ĐÀ NẴNG
+              </Text>
+            </View>
+            <View style={styles.contactItem}>
+              <Ionicons name="location-outline" size={18} color={colors.primary} />
+              <Text style={[styles.contactText, { color: colors.text }]}>
+                CN3: 368 TÔN ĐẢN, HOÀ AN, CẨM LỆ, ĐÀ NẴNG
+              </Text>
+            </View>
+            <View style={styles.contactItem}>
+              <Ionicons name="location-outline" size={18} color={colors.primary} />
+              <Text style={[styles.contactText, { color: colors.text }]}>
+                CN4: ĐT 602 HOÀ SƠN, AN NGÃI ĐÔNG, HOÀ VANG, ĐÀ NẴNG (Sát bên Nhà Thuốc Long Châu)
+              </Text>
+            </View>
+            <View style={styles.contactItem}>
+              <Ionicons name="location-outline" size={18} color={colors.primary} />
+              <Text style={[styles.contactText, { color: colors.text }]}>
+                CN5: 865 NGUYỄN LƯƠNG BẰNG, HÒA KHÁNH BẮC, LIÊN CHIỂU, ĐÀ NẴNG
               </Text>
             </View>
           </View>
           
           <View style={styles.copyright}>
             <Text style={[styles.copyrightText, { color: colors.mediumGray }]}>
-              © 2023 Milk Shop. All rights reserved.
+              © 2025 THẾ GIỚI SỮA MẸ XÍU. Tất cả các quyền được bảo lưu.
             </Text>
           </View>
         </View>
+      )}
     </View>
   );
 };
@@ -78,22 +94,6 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
   },
-  navigation: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: scale(8),
-    borderTopWidth: 1,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: scale(4),
-  },
-  tabLabel: {
-    fontSize: normalize(12),
-    marginTop: scale(4),
-  },
   footerInfo: {
     padding: scale(16),
     borderTopWidth: 1,
@@ -101,53 +101,48 @@ const styles = StyleSheet.create({
   },
   footerTop: {
     alignItems: 'center',
-    marginBottom: scale(16),
+    marginBottom: scale(20),
   },
   footerLogo: {
-    width: scale(60),
-    height: scale(60),
-    borderRadius: scale(30),
+    width: scale(80),
+    height: scale(80),
+    borderRadius: scale(40),
+    marginBottom: scale(12),
+  },
+  footerTitle: {
+    fontSize: normalize(18),
+    fontWeight: '700',
     marginBottom: scale(8),
+    color: '#FF69B4',
   },
   footerTagline: {
     fontSize: normalize(14),
     fontWeight: '500',
     marginBottom: scale(12),
   },
-  socialLinks: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: scale(12),
-  },
-  socialButton: {
-    width: scale(40),
-    height: scale(40),
-    borderRadius: scale(20),
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
   contactInfo: {
-    marginBottom: scale(16),
+    marginBottom: scale(20),
   },
   contactItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: scale(8),
+    marginBottom: scale(12),
+    paddingHorizontal: scale(8),
   },
   contactText: {
     fontSize: normalize(14),
     marginLeft: scale(8),
+    flex: 1,
   },
   copyright: {
     alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: scale(16),
   },
   copyrightText: {
     fontSize: normalize(12),
+    textAlign: 'center',
   },
 });
 

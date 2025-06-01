@@ -21,6 +21,7 @@ import { scale, verticalScale } from '../styles/responsive';
 import Header from '../components/Header';
 import CarouselBanner from '../components/CarouselBanner';
 import ProductCardResponsive from '../components/ProductCardResponsive';
+import Footer from '../components/Footer';
 
 // Banner data for carousel
 const banners = [
@@ -412,46 +413,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Footer */}
-        <View style={[styles.footer, { backgroundColor: colors.cardBackground }]}>
-          <View style={styles.footerTop}>
-            <Image
-              source={require('../assets/images/logo.jpg')}
-              style={styles.footerLogo}
-              contentFit="contain"
-            />
-            <Text style={[styles.footerTagline, { color: colors.text }]}>Vì sức khỏe của gia đình bạn</Text>
-            <View style={styles.socialLinks}>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-facebook" size={24} color="#3b5998" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-instagram" size={24} color="#e1306c" />
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.socialButton, { backgroundColor: colors.background }]}>
-                <Ionicons name="logo-youtube" size={24} color="#ff0000" />
-              </TouchableOpacity>
-            </View>
-          </View>
-          
-          <View style={styles.footerInfo}>
-            <View style={styles.footerInfoItem}>
-              <Ionicons name="call-outline" size={18} color={colors.primary} />
-              <Text style={[styles.footerInfoText, { color: colors.text }]}>Hotline: 1900 6789</Text>
-            </View>
-            <View style={styles.footerInfoItem}>
-              <Ionicons name="mail-outline" size={18} color={colors.primary} />
-              <Text style={[styles.footerInfoText, { color: colors.text }]}>Email: support@milkshop.vn</Text>
-            </View>
-            <View style={styles.footerInfoItem}>
-              <Ionicons name="location-outline" size={18} color={colors.primary} />
-              <Text style={[styles.footerInfoText, { color: colors.text }]}>Địa chỉ: 123 Đường ABC, Quận XYZ, TP. HCM</Text>
-            </View>
-          </View>
-          
-          <View style={styles.copyright}>
-            <Text style={[styles.copyrightText, { color: colors.mediumGray }]}>© 2023 Milk Shop. All rights reserved.</Text>
-          </View>
-        </View>
+        <Footer showInfo={true} />
       </ScrollView>
     </SafeAreaView>
   );

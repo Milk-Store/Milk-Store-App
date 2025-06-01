@@ -11,7 +11,7 @@ import {
 import { useTheme } from '../../contexts/ThemeContext';
 import { Product } from '../../contexts/CartContext';
 import { api } from '../../services/api';
-import { useNavigation } from 'expo-router';
+import { useNavigation, useLocalSearchParams } from 'expo-router';
 import StyleSheet from '../../styles/StyleSheet';
 import { scale, verticalScale } from '../../styles/responsive';
 import CategoryItem from '../../components/CategoryItem';
@@ -19,6 +19,19 @@ import SectionHeader from '../../components/SectionHeader';
 import CarouselBanner from '../../components/CarouselBanner';
 import ProductCardResponsive from '../../components/ProductCardResponsive';
 import { CustomerLayout } from '../../layouts';
+import Pagination from '../../components/ui/Pagination';
+import Footer from '../../components/Footer';
+
+// Types
+interface Category {
+  id: string;
+  name: string;
+  image?: string;
+}
+
+interface ProductWithCategory extends Product {
+  category_name?: string;
+}
 
 // Banner data for carousel
 const banners = [
@@ -30,11 +43,11 @@ const banners = [
 export default function ProductsScreen() {
   const { colors } = useTheme();
   const navigation = useNavigation();
+  const { activateSearch } = useLocalSearchParams();
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<ProductWithCategory[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -43,6 +56,28 @@ export default function ProductsScreen() {
   const [totalProducts, setTotalProducts] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const ITEMS_PER_PAGE = 10;
+  
+  // Activate search if navigated from home screen
+  useEffect(() => {
+    if (activateSearch === 'true') {
+      setIsSearchActive(true);
+    }
+  }, [activateSearch]);
+  
+  // Transform AdminProduct to Product
+  const transformProduct = useCallback((adminProduct: any): ProductWithCategory => {
+    return {
+      id: adminProduct.id,
+      name: adminProduct.name,
+      price: Number(adminProduct.price),
+      image: adminProduct.image,
+      description: adminProduct.description,
+      category: typeof adminProduct.category === 'object' ? adminProduct.category.name : adminProduct.category,
+      category_id: adminProduct.category_id.toString(),
+      category_name: typeof adminProduct.category === 'object' ? adminProduct.category.name : undefined,
+      discount: adminProduct.discount
+    };
+  }, []);
   
   // Fetch data (products and categories)
   const fetchData = useCallback(async (pageNum: number = 1, shouldRefresh: boolean = true, categoryId: string = selectedCategory) => {
@@ -58,7 +93,7 @@ export default function ProductsScreen() {
       }
       
       // Fetch all products with pagination
-      const { products: productsData, total } = await api.products.getAll(
+      const response = await api.products.getAll(
         true,
         pageNum,
         ITEMS_PER_PAGE,
@@ -66,24 +101,19 @@ export default function ProductsScreen() {
         categoryId !== 'all' ? parseInt(categoryId) : undefined
       );
       
-      if (shouldRefresh) {
-        setProducts(productsData);
-      } else {
-        setProducts(prev => [...prev, ...productsData]);
-      }
-      setTotalProducts(total);
+      const transformedProducts = response.products.map(transformProduct);
       
-      // Set featured products (top 6)
-      if (pageNum === 1) {
-        setFeaturedProducts(productsData.slice(0, 6));
-      }
+      // Always set new products, don't append
+      setProducts(transformedProducts);
+      setTotalProducts(response.pagination.totalItems);
+      
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, transformProduct]);
   
   // Initial data fetch
   useEffect(() => {
@@ -119,16 +149,6 @@ export default function ProductsScreen() {
       setIsLoading(false);
     }
   }, [fetchData]);
-  
-  // Handle load more
-  const handleLoadMore = useCallback(() => {
-    if (isLoadingMore || products.length >= totalProducts) return;
-    
-    setIsLoadingMore(true);
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchData(nextPage, false, selectedCategory);
-  }, [isLoadingMore, products.length, totalProducts, page, fetchData, selectedCategory]);
   
   // Handle refresh
   const handleRefresh = useCallback(async () => {
@@ -205,7 +225,13 @@ export default function ProductsScreen() {
     onSearchChange: handleSearch,
     onSearchClear: handleSearchClear,
     searchValue: searchQuery,
-    isSearchActive: isSearchActive,
+    isSearchActive,
+    setIsSearchActive,
+  };
+  
+  // Thêm hàm tạo unique key
+  const generateUniqueKey = (id: string, index: number): string => {
+    return `product-${id}-${index}`;
   };
   
   // Render footer for loading more
@@ -244,24 +270,12 @@ export default function ProductsScreen() {
             tintColor={colors.primary}
           />
         }
-        onScroll={({ nativeEvent }) => {
-          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-          const paddingToBottom = 20;
-          if (layoutMeasurement.height + contentOffset.y >=
-              contentSize.height - paddingToBottom) {
-            handleLoadMore();
-          }
-        }}
-        scrollEventThrottle={400}
       >
-        {/* Banner Carousel */}
-        {/* <CarouselBanner data={banners} /> */}
-        
         {/* Categories */}
         <View style={styles.sectionContainer}>
           <SectionHeader 
             title="Danh mục sản phẩm" 
-            onAction={handleSeeAll}
+            actionText=""
           />
           
           <FlatList
@@ -270,6 +284,7 @@ export default function ProductsScreen() {
               <CategoryItem
                 id={item.id}
                 name={item.name}
+                image={item.image}
                 selected={selectedCategory === item.id}
                 onSelect={filterByCategory}
               />
@@ -281,37 +296,13 @@ export default function ProductsScreen() {
           />
         </View>
         
-        {/* Featured Products */}
-        {page === 1 && (
-          <View style={styles.sectionContainer}>
-            <SectionHeader 
-              title="Sản phẩm nổi bật" 
-              onAction={handleSeeAll}
-            />
-            
-            <View style={styles.productsGrid}>
-              {featuredProducts.map((item) => (
-                <ProductCardResponsive
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  price={item.price}
-                  image={item.image}
-                  discount={item.discount}
-                  onPress={handleProductPress}
-                  onAddToCart={handleAddToCart}
-                />
-              ))}
-            </View>
-          </View>
-        )}
-        
         {/* All Products */}
         <View style={styles.sectionContainer}>
-          <SectionHeader 
-            title="Tất cả sản phẩm" 
-            onAction={handleSeeAll}
-          />
+          <View style={styles.titleContainer}>
+            <Text style={[styles.titleText, { color: colors.text }]}>
+              Tất cả sản phẩm
+            </Text>
+          </View>
           
           <View style={styles.productsGrid}>
             {products.map((item) => (
@@ -327,8 +318,21 @@ export default function ProductsScreen() {
               />
             ))}
           </View>
-          {renderFooter()}
+
+          {/* Add Pagination */}
+          <Pagination
+            currentPage={page}
+            totalPages={Math.ceil(totalProducts / ITEMS_PER_PAGE)}
+            totalItems={totalProducts}
+            onPageChange={(newPage: number) => {
+              setPage(newPage);
+              fetchData(newPage, false, selectedCategory);
+            }}
+            colors={colors}
+          />
         </View>
+        <Footer />
+
       </ScrollView>
     );
   };
@@ -363,6 +367,15 @@ const styles = StyleSheet.responsive({
       flexWrap: 'wrap',
       paddingHorizontal: scale(8),
     },
+    titleContainer: {
+      alignItems: 'center',
+      marginBottom: scale(16),
+      paddingHorizontal: scale(16),
+    },
+    titleText: {
+      fontSize: scale(20),
+      fontWeight: 'bold',
+    },
     loadingMore: {
       paddingVertical: scale(16),
       alignItems: 'center',
@@ -383,6 +396,9 @@ const styles = StyleSheet.responsive({
     categoriesContainer: {
       paddingHorizontal: scale(8),
     },
+    titleText: {
+      fontSize: scale(18),
+    },
   },
   
   // Style cho máy tính bảng
@@ -398,6 +414,9 @@ const styles = StyleSheet.responsive({
     },
     productsGrid: {
       paddingHorizontal: scale(16),
+    },
+    titleText: {
+      fontSize: scale(24),
     },
   }
 });
